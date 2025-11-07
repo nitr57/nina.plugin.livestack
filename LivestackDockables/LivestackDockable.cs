@@ -334,7 +334,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 tab.SaveToDisk();
             }
 
-            _ = messageBroker.Publish(new LivestackBroadcast(new LiveStackBroadcastContent(tab.Filter, tab.Target, tab.StackImage), correlation));
+            _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Monochrome(tab.StackCount, tab.Filter, tab.Target, tab.StackImage), correlation));
         }
 
         private async Task StackOSC(float[] theImageArray, LiveStackItem item, LiveStackTab redTab, Guid correlation, CancellationToken token) {
@@ -425,9 +425,9 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 blueTab.SaveToDisk();
             }
 
-            _ = messageBroker.Publish(new LivestackBroadcast(new LiveStackBroadcastContent(redTab.Filter, redTab.Target, redTab.StackImage), correlation));
-            _ = messageBroker.Publish(new LivestackBroadcast(new LiveStackBroadcastContent(greenTab.Filter, redTab.Target, redTab.StackImage), correlation));
-            _ = messageBroker.Publish(new LivestackBroadcast(new LiveStackBroadcastContent(blueTab.Filter, redTab.Target, redTab.StackImage), correlation));
+            _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Monochrome(redTab.StackCount, redTab.Filter, redTab.Target, redTab.StackImage), correlation));
+            _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Monochrome(greenTab.StackCount, greenTab.Filter, greenTab.Target, greenTab.StackImage), correlation));
+            _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Monochrome(blueTab.StackCount, blueTab.Filter, blueTab.Target, blueTab.StackImage), correlation));
         }
 
         private async Task StackItem(LiveStackItem item, CancellationToken token) {
@@ -461,7 +461,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                         colorTab.AutoSaveToDisk();
                     }
 
-                    _ = messageBroker.Publish(new LivestackBroadcast(new LiveStackBroadcastContent(colorTab.Filter, colorTab.Target, colorTab.StackImage), correlation));
+                    _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Color(colorTab.StackCountRed, colorTab.StackCountGreen, colorTab.StackCountBlue, colorTab.Filter, colorTab.Target, colorTab.StackImage), correlation));
                 }
             } finally {
                 tab.Locked = false;
@@ -572,11 +572,50 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
     public class LiveStackBroadcastContent {
 
-        public LiveStackBroadcastContent(string filter, string target, BitmapSource image) {
+        private LiveStackBroadcastContent(bool isMonochrome, int? stackCount, int? redStackCount, int? greenStackCount, int? blueStackCount, string filter, string target, BitmapSource image) {
+            IsMonochrome = isMonochrome;
+            StackCount = stackCount;
+            RedStackCount = redStackCount;
+            GreenStackCount = greenStackCount;
+            BlueStackCount = blueStackCount;
             Filter = filter;
             Target = target;
             Image = image;
         }
+
+        public static LiveStackBroadcastContent Monochrome(int stackCount, string filter, string target, BitmapSource image) {
+            return new LiveStackBroadcastContent(
+                true,
+                stackCount,
+                null,
+                null,
+                null,
+                filter,
+                target,
+                image
+            );
+        }
+
+        public static LiveStackBroadcastContent Color(int redStackCount, int greenStackCount, int blueStackCount, string filter, string target, BitmapSource image) {
+            return new LiveStackBroadcastContent(
+                false,
+                null,
+                redStackCount,
+                greenStackCount,
+                blueStackCount,
+                filter,
+                target,
+                image
+            );
+        }
+
+        public bool IsMonochrome { get; }
+        public int? StackCount { get; } // Only used for monochrome
+
+        // Only used for color
+        public int? RedStackCount { get; }
+        public int? GreenStackCount { get; }
+        public int? BlueStackCount { get; }
 
         public string Filter { get; }
         public string Target { get; }
