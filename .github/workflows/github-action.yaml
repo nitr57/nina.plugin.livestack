@@ -18,7 +18,7 @@ env:
   PLUGIN_NAME: "Livestack"
   PLUGIN_SLN_NAME: "nina.plugin.livestack"
   PLUGIN_DLL_NAME: "nina.plugin.livestack"
-  PLUGIN_MANIFEST_PATH: "l/Livestack/3.0.0/manifest.${{ github.ref_name }}.json"
+  PLUGIN_MANIFEST_PATH: "l/Livestack/3.0.0
 
 jobs:
   build-and-release:
