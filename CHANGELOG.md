@@ -1,5 +1,8 @@
 ﻿# Livestack
 
+## 1.0.1.6
+- Calibration frames that no longer exist will automatically get removed from the profile
+
 ## 1.0.1.4
 - Fix start and stop live stack via message broker to not reflect properly in the User Interface
 - Added a reset to default button for the stretch popouts

@@ -35,6 +35,7 @@ namespace NINA.Plugin.Livestack {
 
         private void InitializeLibraries() {
             var darkLibrary = new AsyncObservableCollection<CalibrationFrameMeta>(pluginSettings.GetValueString(nameof(DarkLibrary), "").FromStringToList<CalibrationFrameMeta>());
+            var darkLibraryInitialCount = darkLibrary.Count;
             foreach (var item in darkLibrary.ToList()) {
                 if (!File.Exists(item.Path)) {
                     Logger.Warning($"DARK master not found: {item.Path}");
@@ -42,7 +43,12 @@ namespace NINA.Plugin.Livestack {
                 }
             }
             DarkLibrary = darkLibrary;
+            if (darkLibrary.Count != darkLibraryInitialCount) {
+                pluginSettings.SetValueString(nameof(DarkLibrary), DarkLibrary.FromListToString());
+            }
+
             var biasLibrary = new AsyncObservableCollection<CalibrationFrameMeta>(pluginSettings.GetValueString(nameof(BiasLibrary), "").FromStringToList<CalibrationFrameMeta>());
+            var biasLibraryInitialCount = biasLibrary.Count;
             foreach (var item in biasLibrary.ToList()) {
                 if (!File.Exists(item.Path)) {
                     Logger.Warning($"BIAS master not found: {item.Path}");
@@ -50,7 +56,12 @@ namespace NINA.Plugin.Livestack {
                 }
             }
             BiasLibrary = biasLibrary;
+            if (biasLibrary.Count != biasLibraryInitialCount) {
+                pluginSettings.SetValueString(nameof(BiasLibrary), BiasLibrary.FromListToString());
+            }
+
             var flatLibrary = new AsyncObservableCollection<CalibrationFrameMeta>(pluginSettings.GetValueString(nameof(FlatLibrary), "").FromStringToList<CalibrationFrameMeta>());
+            var flatLibraryInitialCount = flatLibrary.Count;
             foreach (var item in flatLibrary.ToList()) {
                 if (!File.Exists(item.Path)) {
                     Logger.Warning($"Flat master not found: {item.Path}");
@@ -61,6 +72,10 @@ namespace NINA.Plugin.Livestack {
                 }
             }
             FlatLibrary = flatLibrary;
+            if (flatLibrary.Count != flatLibraryInitialCount) {
+                pluginSettings.SetValueString(nameof(FlatLibrary), FlatLibrary.FromListToString());
+            }
+
             SessionFlatLibrary = new AsyncObservableCollection<CalibrationFrameMeta>();
         }
 
