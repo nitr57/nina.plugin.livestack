@@ -535,20 +535,15 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         }
 
         public async Task OnMessageReceived(IMessage message) {
-            switch (message.Topic) {
-                case $"Livestack_LivestackDockable_StartLiveStack":
-                    if (LivestackMediator.LiveStackDockable.StartLiveStackCommand.IsRunning) {
-                        return;
-                    }
-                    await Application.Current.Dispatcher.BeginInvoke(() => StartLiveStackCommand.ExecuteAsync(null));
-                    break;
-                case $"Livestack_LivestackDockable_StopLiveStack":
-                    if (LivestackMediator.LiveStackDockable.StartLiveStackCommand.IsRunning) {
-                        await Application.Current.Dispatcher.BeginInvoke(() => LivestackMediator.LiveStackDockable.StartLiveStackCancelCommand.Execute(null));
-                    }
-                    break;
-                default:
-                    break;
+            if (message.Topic == $"Livestack_LivestackDockable_StartLiveStack") {
+                if (LivestackMediator.LiveStackDockable.StartLiveStackCommand.IsRunning) {
+                    return;
+                }
+                await Application.Current.Dispatcher.BeginInvoke(() => StartLiveStackCommand.ExecuteAsync(null));
+            } else if (message.Topic == $"Livestack_LivestackDockable_StopLiveStack") {
+                if (LivestackMediator.LiveStackDockable.StartLiveStackCommand.IsRunning) {
+                    await Application.Current.Dispatcher.BeginInvoke(() => LivestackMediator.LiveStackDockable.StartLiveStackCancelCommand.Execute(null));
+                }
             }
         }
     }
