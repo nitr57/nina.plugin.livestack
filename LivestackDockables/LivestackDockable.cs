@@ -30,6 +30,7 @@ using NINA.Image.ImageData;
 using NINA.Core.Enum;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Plugin.Interfaces;
+using System.ComponentModel;
 
 namespace NINA.Plugin.Livestack.LivestackDockables {
 
@@ -103,6 +104,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         private readonly IWindowServiceFactory windowServiceFactory;
         private readonly ICameraMediator cameraMediator;
         private readonly IMessageBroker messageBroker;
+        private Guid? stackSessionId = null;
 
         [RelayCommand(IncludeCancelCommand = true)]
         private Task StartLiveStack(CancellationToken token) {
@@ -113,6 +115,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     queue = new AsyncProducerConsumerQueue<LiveStackItem>(1000);
                     var localQueue = queue;
                     this.imageSaveMediator.BeforeFinalizeImageSaved += ImageSaveMediator_BeforeFinalizeImageSaved;
+                    this.stackSessionId = Guid.NewGuid();
+                    _ = messageBroker.Publish(new LiveStackStatusBroadcast(LiveStackStatus.Running, this.stackSessionId.Value));
 
                     while (!token.IsCancellationRequested) {
                         try {
@@ -162,6 +166,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 } finally {
                     applicationStatusMediator.StatusUpdate(new ApplicationStatus() { Source = "Live Stack", Status = "" });
                     this.imageSaveMediator.BeforeFinalizeImageSaved -= ImageSaveMediator_BeforeFinalizeImageSaved;
+                    _ = messageBroker.Publish(new LiveStackStatusBroadcast(LiveStackStatus.Stopped, this.stackSessionId.Value));
+                    this.stackSessionId = null;
                     IsExpanded = true;
                     QueueEntries = 0;
                     GC.Collect();
@@ -444,7 +450,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
                 RemoveHotpixelsIfNeeded(calibratedFrame, item);
 
-                Guid correlation = Guid.NewGuid();
+                Guid correlation = this.stackSessionId.Value;
                 if (item.IsBayered) {
                     await StackOSC(calibratedFrame, item, tab, correlation, token);
                 } else {
@@ -620,5 +626,40 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         public string Filter { get; }
         public string Target { get; }
         public BitmapSource Image { get; }
+    }
+
+    public class LiveStackStatusBroadcast : IMessage {
+
+        public LiveStackStatusBroadcast(LiveStackStatus status, Guid correlation) {
+            Content = status.ToString();
+            CorrelationId = correlation;
+        }
+
+        public Guid SenderId => Guid.Parse(LivestackMediator.Plugin.Identifier);
+
+        public string Sender => "Livestack";
+
+        public DateTimeOffset SentAt => DateTimeOffset.UtcNow;
+
+        public Guid MessageId => Guid.NewGuid();
+
+        public DateTimeOffset? Expiration => null;
+
+        public Guid? CorrelationId { get; }
+
+        public int Version => 1;
+
+        public IDictionary<string, object> CustomHeaders => new Dictionary<string, object>();
+
+        public string Topic => "Livestack_LivestackDockable_StatusBroadcast";
+
+        public object Content { get; }
+    }
+
+    public enum LiveStackStatus {
+        [Description("running")]
+        Running,
+        [Description("stopped")]
+        Stopped
     }
 }

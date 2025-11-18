@@ -1,5 +1,8 @@
 ﻿# Livestack
 
+## 1.0.1.7
+- A broadcast on IMessageBroker will be sent with the topic "Livestack_LivestackDockable_StatusBroadcast" when the plugin's running status changes.
+
 ## 1.0.1.6
 - Calibration frames that no longer exist will automatically get removed from the profile
 
