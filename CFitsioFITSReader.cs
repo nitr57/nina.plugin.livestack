@@ -82,7 +82,7 @@ namespace NINA.Plugin.Livestack {
 
         private T[] ReadPixelRow<T>(int row) {
             const int nelem = 2;
-            var firstpix = new int[nelem] { 1, row + 1 };
+            var firstpix = new long[nelem] { 1, row + 1 };
 
             var datatype = GetDataType(typeof(T));
 
@@ -101,7 +101,7 @@ namespace NINA.Plugin.Livestack {
 
         private T[] ReadAllPixels<T>() {
             const int nelem = 2;
-            var firstpix = new int[nelem] { 1, 1 };
+            var firstpix = new long[nelem] { 1, 1 };
 
             var datatype = GetDataType(typeof(T));
 
