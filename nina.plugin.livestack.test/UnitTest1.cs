@@ -101,9 +101,9 @@ namespace nina.plugin.livestack.test {
 
         [TearDown]
         public void Teardown() {
-            reader.Dispose();
-            manager.Dispose();
-            manager2.Dispose();
+            reader?.Dispose();
+            manager?.Dispose();
+            manager2?.Dispose();
         }
 
         [Test]
@@ -113,6 +113,35 @@ namespace nina.plugin.livestack.test {
             var simd = manager2.ApplyLightFrameCalibrationInPlace(reader, frameWidth, frameHeight, frameExposureTime, frameGain, frameOffset, frameFilter, frameIsBayered);
 
             FloatAssert.AreEqual(baseline, simd);
+        }
+
+        [Test]
+        public void CanRoundTripFitsPathWithBracketsAndCurlyBraces() {
+            var tempRoot = Path.Combine(Path.GetTempPath(), $"Livestack[Test]{{{Guid.NewGuid():N}}}");
+            Directory.CreateDirectory(tempRoot);
+
+            var filePath = Path.Combine(tempRoot, "frame[1]{test}.fits");
+            ushort[] source = [0, 16384, 32768, ushort.MaxValue];
+
+            try {
+                var writer = new CFitsioFITSExtendedWriter(filePath, source, 2, 2, NINA.Image.FileFormat.FITS.CfitsioNative.COMPRESSION.NOCOMPRESS);
+                writer.Close();
+
+                using var fits = new CFitsioFITSReader(filePath);
+                var actual = fits.ReadAllPixelsAsFloat();
+
+                Assert.That(fits.Width, Is.EqualTo(2));
+                Assert.That(fits.Height, Is.EqualTo(2));
+                FloatAssert.AreEqual([0f, 16384f / ushort.MaxValue, 32768f / ushort.MaxValue, 1f], actual, absTol: 1e-6f, relTol: 1e-6f);
+            } finally {
+                if (File.Exists(filePath)) {
+                    File.Delete(filePath);
+                }
+
+                if (Directory.Exists(tempRoot)) {
+                    Directory.Delete(tempRoot);
+                }
+            }
         }
     }
 

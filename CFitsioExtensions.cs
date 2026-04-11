@@ -14,6 +14,9 @@ namespace NINA.Plugin.Livestack {
         [DllImport("cfitsionative.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "ffdkinit")]
         public static extern int fits_create_diskfile(out nint fptr, [MarshalAs(UnmanagedType.LPStr)] string filename, out int status);
 
+        [DllImport("cfitsionative.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "ffdkopn")]
+        public static extern int fits_open_diskfile(out nint fptr, [MarshalAs(UnmanagedType.LPStr)] string filename, int iomode, out int status);
+
         [DllImport("cfitsionative.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "ffgpxv")]
         public static extern int fits_read_pix(nint fptr, NINA.Image.FileFormat.FITS.CfitsioNative.DATATYPE datatype, IntPtr firstpix, long nelem, nint nulval, nint array, out int anynul, out int status);
 

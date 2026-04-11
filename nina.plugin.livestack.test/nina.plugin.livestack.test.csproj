@@ -29,12 +29,15 @@
   <ItemGroup>
     <None Update="External\x64\Cfitsio\cfitsionative.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>cfitsionative.dll</TargetPath>
     </None>
     <None Update="External\x64\Cfitsio\pthreadVC2.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>pthreadVC2.dll</TargetPath>
     </None>
     <None Update="External\x64\Cfitsio\zlib.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>zlib.dll</TargetPath>
     </None>
   </ItemGroup>
 

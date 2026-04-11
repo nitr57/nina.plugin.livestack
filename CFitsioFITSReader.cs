@@ -18,8 +18,8 @@ namespace NINA.Plugin.Livestack {
         private string tempFile;
 
         public CFitsioFITSReader(string filePath) {
-            CfitsioNative.fits_open_file(out filePtr, filePath, CfitsioNative.IOMODE.READONLY, out var status);
-            CfitsioNative.CheckStatus("fits_open_file", status);
+            CFitsioExtensions.fits_open_diskfile(out filePtr, filePath, (int)CfitsioNative.IOMODE.READONLY, out var status);
+            CfitsioNative.CheckStatus("fits_open_diskfile", status);
 
             try {
                 CfitsioNative.fits_read_key_long(filePtr, "NAXIS1");
@@ -52,8 +52,8 @@ namespace NINA.Plugin.Livestack {
                     CfitsioNative.CheckStatus("fits_close_file", status);
                 }
 
-                CfitsioNative.fits_open_file(out filePtr, tempFile, CfitsioNative.IOMODE.READONLY, out status);
-                CfitsioNative.CheckStatus("fits_open_file", status);
+                CFitsioExtensions.fits_open_diskfile(out filePtr, tempFile, (int)CfitsioNative.IOMODE.READONLY, out status);
+                CfitsioNative.CheckStatus("fits_open_diskfile", status);
             }
 
             var dimensions = CfitsioNative.fits_read_key_long(filePtr, "NAXIS");
