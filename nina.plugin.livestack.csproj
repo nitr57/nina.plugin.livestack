@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
     <OutputType>Library</OutputType>
     <RootNamespace>NINA.Plugin.Livestack</RootNamespace>
     <AssemblyName>nina.plugin.livestack</AssemblyName>
@@ -15,10 +15,22 @@
     <Product>Livestack</Product>
     <Description>Live stacking within N.I.N.A.</Description>
     <Copyright>Copyright ©  2024-2025</Copyright>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="nina.plugin.livestack.benchmark\**" />
+    <Compile Remove="nina.plugin.livestack.test\**" />
+    <EmbeddedResource Remove="nina.plugin.livestack.benchmark\**" />
+    <EmbeddedResource Remove="nina.plugin.livestack.test\**" />
+    <None Remove="nina.plugin.livestack.benchmark\**" />
+    <None Remove="nina.plugin.livestack.test\**" />
+    <Page Remove="nina.plugin.livestack.benchmark\**" />
+    <Page Remove="nina.plugin.livestack.test\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
-    <PackageReference Include="NINA.Plugin" Version="3.2.0.1018-nightly" />
+    <PackageReference Include="NINA.Plugin" Version="3.2.0.9001" />
   </ItemGroup>
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

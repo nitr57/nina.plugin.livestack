@@ -10,15 +10,21 @@ using MathNet.Numerics.Statistics;
 
 namespace NINA.Plugin.Livestack.Image {
 
-    public class ImageMath {
+    public class ImageMath : IImageMath {
+        private static readonly Lazy<ImageMath> lazy = new Lazy<ImageMath>(() => new ImageMath());
 
-        public static void SequentialStack(float[] image, float[] stack, int stackImageCount) {
+        public static ImageMath Instance => lazy.Value;
+
+        private ImageMath() {
+        }
+
+        public void SequentialStack(float[] image, float[] stack, int stackImageCount) {
             for (int i = 0; i < stack.Length; i++) {
                 stack[i] = (stackImageCount * stack[i] + image[i]) / (stackImageCount + 1);
             }
         }
 
-        public static List<Accord.Point> Flip(List<Accord.Point> points, int width, int height) {
+        public List<Accord.Point> Flip(List<Accord.Point> points, int width, int height) {
             var l = new List<Accord.Point>();
             foreach (var point in points) {
                 l.Add(new Accord.Point(width - 1 - point.X, height - 1 - point.Y));
@@ -26,7 +32,7 @@ namespace NINA.Plugin.Livestack.Image {
             return l;
         }
 
-        public static float[] PercentileClipping(List<CFitsioFITSReader> images, double lowerPercentile, double upperPercentile) {
+        public float[] PercentileClipping(List<CFitsioFITSReader> images, double lowerPercentile, double upperPercentile) {
             if (images.Count == 0) { return []; }
 
             float[] imageMedian = new float[images.Count];
@@ -87,7 +93,7 @@ namespace NINA.Plugin.Livestack.Image {
             return master;
         }
 
-        public static Bitmap DownsampleGray16(Bitmap input, int factor) {
+        public Bitmap DownsampleGray16(Bitmap input, int factor) {
             if (factor <= 0) {
                 throw new ArgumentException("Downsampling factor must be greater than 0.", nameof(factor));
             }
@@ -146,7 +152,7 @@ namespace NINA.Plugin.Livestack.Image {
             return output;
         }
 
-        public static void RemoveHotPixelOutliers(float[] imageData, int width, int height, int neighborSize = 1, double outlierFactor = 10.0) {
+        public void RemoveHotPixelOutliers(float[] imageData, int width, int height, int neighborSize = 1, double outlierFactor = 10.0) {
             int windowSize = (2 * neighborSize + 1) * (2 * neighborSize + 1) - 1; // Total neighbors excluding the center pixel
             float[] meanBuffer = new float[width * height];
             float[] stdDevBuffer = new float[width * height];
@@ -196,7 +202,7 @@ namespace NINA.Plugin.Livestack.Image {
             });
         }
 
-        public static Bitmap MergeGray16ToRGB48(Bitmap red, Bitmap green, Bitmap blue) {
+        public Bitmap MergeGray16ToRGB48(Bitmap red, Bitmap green, Bitmap blue) {
             // Ensure all input bitmaps are of the same size
             int width = red.Width;
             int height = red.Height;
@@ -246,7 +252,7 @@ namespace NINA.Plugin.Livestack.Image {
             return rgb48Bitmap;
         }
 
-        public static BitmapWithMedian CreateGrayBitmap(float[] data, int width, int height) {
+        public BitmapWithMedian CreateGrayBitmap(float[] data, int width, int height) {
             if (data.Length != width * height)
                 throw new ArgumentException("Data length does not match width and height dimensions.");
 
@@ -298,7 +304,7 @@ namespace NINA.Plugin.Livestack.Image {
             }
         }
 
-        public static (double Median, double MAD) CalculateMedianAndMAD(int[] pixelValueCounts, int originalDataLength) {
+        public (double Median, double MAD) CalculateMedianAndMAD(int[] pixelValueCounts, int originalDataLength) {
             int median1 = 0, median2 = 0;
             var occurrences = 0;
             var medianlength = originalDataLength / 2.0;
@@ -347,7 +353,7 @@ namespace NINA.Plugin.Livestack.Image {
             return (median, medianAbsoluteDeviation);
         }
 
-        public static void ApplyGreenDeNoiseInPlace(Bitmap colorBitmap, double amount) {
+        public void ApplyGreenDeNoiseInPlace(Bitmap colorBitmap, double amount) {
             Rectangle rect = new Rectangle(0, 0, colorBitmap.Width, colorBitmap.Height);
             BitmapData bmpData = colorBitmap.LockBits(rect, ImageLockMode.ReadWrite, colorBitmap.PixelFormat);
 

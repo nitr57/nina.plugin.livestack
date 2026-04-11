@@ -1,11 +1,12 @@
-﻿using System;
-using System.Globalization;
-using NINA.Astrometry;
+﻿using NINA.Astrometry;
 using NINA.Core.Enum;
 using NINA.Core.Utility;
-using System.Linq;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.ImageData;
+using System;
+using System.Globalization;
+using System.Linq;
+using System.Runtime.InteropServices;
 using static NINA.Image.FileFormat.FITS.CfitsioNative;
 
 namespace NINA.Plugin.Livestack {
@@ -14,8 +15,8 @@ namespace NINA.Plugin.Livestack {
         private nint filePtr;
 
         private CFitsioFITSExtendedWriter(string filePath, COMPRESSION compression) {
-            CfitsioNative.fits_create_file(out var ptr, filePath, out var status);
-            CheckStatus("fits_create_file", status);
+            CFitsioExtensions.fits_create_diskfile(out var ptr, filePath, out var status);
+            CheckStatus("fits_create_diskfile", status);
             this.filePtr = ptr;
 
             if (compression != COMPRESSION.NOCOMPRESS) {

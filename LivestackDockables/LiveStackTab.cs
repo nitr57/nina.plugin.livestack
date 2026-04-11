@@ -94,13 +94,13 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         }
 
         private BitmapSource Render(double stretchFactor, double blackClipping, int downsample) {
-            using var bmp = ImageMath.CreateGrayBitmap(Stack, Properties.Width, Properties.Height);
+            using var bmp = LivestackMediator.GetImageMath().CreateGrayBitmap(Stack, Properties.Width, Properties.Height);
             var filter = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(bmp.Median, bmp.MedianAbsoluteDeviation, Properties.BitDepth), stretchFactor, blackClipping, PixelFormats.Gray16);
             filter.ApplyInPlace(bmp.Bitmap);
 
             BitmapSource source;
             if (downsample > 1) {
-                using var downsampledBmp = ImageMath.DownsampleGray16(bmp.Bitmap, downsample);
+                using var downsampledBmp = LivestackMediator.GetImageMath().DownsampleGray16(bmp.Bitmap, downsample);
                 source = ImageUtility.ConvertBitmap(downsampledBmp);
             } else {
                 source = ImageUtility.ConvertBitmap(bmp.Bitmap);

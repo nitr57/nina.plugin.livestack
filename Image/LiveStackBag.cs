@@ -44,7 +44,7 @@ namespace NINA.Plugin.Livestack.Image {
             if (Stack == null) {
                 Stack = image;
             } else {
-                ImageMath.SequentialStack(image, Stack, ImageCount);
+                LivestackMediator.GetImageMath().SequentialStack(image, Stack, ImageCount);
             }
             ImageCount++;
         }

@@ -1,5 +1,10 @@
 ﻿# Livestack
 
+## 1.1.0.0
+- Saving FITS files is now using `fits_create_diskfile` instead of `fits_create_file` to allow for square or curly bracket characters in the file name
+- Image alignment now uses RANSAC to improve robustness against outliers
+- Improved Image calibration to utilize SIMD instructions for better performance and reduced memory usage
+
 ## 1.0.1.7
 - A broadcast on IMessageBroker will be sent with the topic "Livestack_LivestackDockable_StatusBroadcast" when the plugin's running status changes.
 

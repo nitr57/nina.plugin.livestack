@@ -1,15 +1,15 @@
-﻿using System;
+﻿using NINA.Core.Utility;
+using NINA.Image.FileFormat.FITS;
+using NINA.Image.ImageData;
+using System;
+using System.Buffers;
 using System.Globalization;
 using System.IO;
-using NINA.Image.FileFormat.FITS;
-using static NINA.Image.FileFormat.FITS.CfitsioNative;
-using NINA.Image.ImageData;
-using NINA.Core.Utility;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Documents;
 using System.Windows.Media.Media3D;
-using Grpc.Core;
+using static NINA.Image.FileFormat.FITS.CfitsioNative;
 
 namespace NINA.Plugin.Livestack {
 
@@ -38,7 +38,7 @@ namespace NINA.Plugin.Livestack {
             if (compressionFlag > 0) {
                 // When the image is compresse, we decompress it into a temporary file
                 tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".fits");
-                CfitsioNative.fits_create_file(out var ptr, tempFile, out status);
+                CFitsioExtensions.fits_create_diskfile(out var ptr, tempFile, out status);
                 CfitsioNative.CheckStatus("fits_create_file", status);
 
                 CfitsioNative.fits_img_decompress(filePtr, ptr, out status);
@@ -92,7 +92,7 @@ namespace NINA.Plugin.Livestack {
                 var nulVal = default(T);
                 var nulValRef = &nulVal;
                 fixed (T* fixedBuffer = resultBuffer) {
-                    var result = fits_read_pix(filePtr, datatype, firstpix, Width, (IntPtr)nulValRef, (IntPtr)fixedBuffer, out var nullCount, out var status);
+                    var result = CfitsioNative.fits_read_pix(filePtr, datatype, firstpix, Width, (IntPtr)nulValRef, (IntPtr)fixedBuffer, out var nullCount, out var status);
                     CheckStatus("fits_read_pix", status);
                 }
                 return resultBuffer;
@@ -111,13 +111,14 @@ namespace NINA.Plugin.Livestack {
                 var nulVal = default(T);
                 var nulValRef = &nulVal;
                 fixed (T* fixedBuffer = resultBuffer) {
-                    var result = fits_read_pix(filePtr, datatype, firstpix, Width * Height, (IntPtr)nulValRef, (IntPtr)fixedBuffer, out var nullCount, out var status);
+                    var result = CfitsioNative.fits_read_pix(filePtr, datatype, firstpix, Width * Height, (IntPtr)nulValRef, (IntPtr)fixedBuffer, out var nullCount, out var status);
                     CheckStatus("fits_read_pix", status);
                 }
                 return resultBuffer;
             }
         }
 
+        [Obsolete("Use ReadPixelRowAsFloat(int row, Span<float> destination) instead for better performance and less memory allocations.")]
         public float[] ReadPixelRowAsFloat(int row) {
             if (BitPix == BITPIX.BYTE_IMG) {
                 var pixels = ReadPixelRow<byte>(row);
@@ -150,30 +151,6 @@ namespace NINA.Plugin.Livestack {
                 }
             }
             return data;
-        }
-
-        public ushort[] ReadPixelRowAsUShort(int row) {
-            if (BitPix == BITPIX.BYTE_IMG) {
-                var pixels = ReadPixelRow<byte>(row);
-                return ToUshortArray(pixels);
-            } else if (BitPix == BITPIX.DOUBLE_IMG) {
-                var pixels = ReadPixelRow<double>(row);
-                return ToUshortArray(pixels);
-            } else if (BitPix == BITPIX.FLOAT_IMG) {
-                var pixels = ReadPixelRow<float>(row);
-                return ToUshortArray(pixels);
-            } else if (BitPix == BITPIX.LONGLONG_IMG) {
-                var pixels = ReadPixelRow<long>(row);
-                return ToUshortArray(pixels);
-            } else if (BitPix == BITPIX.LONG_IMG) {
-                var pixels = ReadPixelRow<int>(row);
-                return ToUshortArray(pixels);
-            } else if (BitPix == BITPIX.SHORT_IMG) {
-                var pixels = ReadPixelRow<ushort>(row);
-                return pixels;
-            } else {
-                throw new ArgumentException($"Invalid BITPIX {BitPix}");
-            }
         }
 
         public float[] ReadAllPixelsAsFloat() {
@@ -242,100 +219,12 @@ namespace NINA.Plugin.Livestack {
             return pixels;
         }
 
-        private static ushort[] ToUshortArray(byte[] src) {
-            ushort[] pixels = new ushort[src.Length];
-            for (int i = 0; i < src.Length; i++) {
-                pixels[i] = (ushort)((src[i] / (double)byte.MaxValue) * ushort.MaxValue);
-            }
-            return pixels;
-        }
-
-        private static ushort[] ToUshortArray(double[] src) {
-            ushort[] pixels = new ushort[src.Length];
-            for (int i = 0; i < src.Length; i++) {
-                pixels[i] = (ushort)(src[i] * ushort.MaxValue);
-            }
-            return pixels;
-        }
-
-        private static ushort[] ToUshortArray(float[] src) {
-            ushort[] pixels = new ushort[src.Length];
-            for (int i = 0; i < src.Length; i++) {
-                pixels[i] = (ushort)(src[i] * ushort.MaxValue);
-            }
-            return pixels;
-        }
-
-        private static ushort[] ToUshortArray(long[] src) {
-            ushort[] pixels = new ushort[src.Length];
-            for (int i = 0; i < src.Length; i++) {
-                pixels[i] = (ushort)((((double)src[i] - long.MinValue) / ((double)long.MaxValue - long.MinValue)) * ushort.MaxValue);
-            }
-            return pixels;
-        }
-
-        private static ushort[] ToUshortArray(int[] src) {
-            ushort[] pixels = new ushort[src.Length];
-            for (int i = 0; i < src.Length; i++) {
-                pixels[i] = (ushort)((((double)src[i] - int.MinValue) / ((double)int.MaxValue - int.MinValue)) * ushort.MaxValue);
-            }
-            return pixels;
-        }
-
         public double ReadDoubleHeader(string keyname) {
-            return fits_read_key_double(filePtr, keyname);
+            return CFitsioExtensions.fits_read_key_double(filePtr, keyname);
         }
 
         public float ReadFloatHeader(string keyname) {
-            return fits_read_key_float(filePtr, keyname);
-        }
-
-        private const int FLEN_KEYWORD = 75;
-        private const int FLEN_COMMENT = 73;
-
-        // fits_read_key_double      ffgkyd
-        [DllImport("cfitsionative.dll", CharSet = CharSet.Ansi, EntryPoint = "ffgkyd", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int _fits_read_key_double(
-            IntPtr fptr,
-            [MarshalAs(UnmanagedType.LPStr, SizeConst = FLEN_KEYWORD)] string keyname,
-            out double value,
-            [MarshalAs(UnmanagedType.LPStr, SizeConst = FLEN_COMMENT)] StringBuilder comm,
-            out int status);
-
-        public static double fits_read_key_double(IntPtr fptr, string keyname) {
-            _fits_read_key_double(fptr, keyname, out var value, null, out var status);
-            CheckStatus("fits_read_key_long", status);
-            return value;
-        }
-
-        // fits_read_key_double      ffgkye
-        [DllImport("cfitsionative.dll", CharSet = CharSet.Ansi, EntryPoint = "ffgkye", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int _fits_read_key_float(
-            IntPtr fptr,
-            [MarshalAs(UnmanagedType.LPStr, SizeConst = FLEN_KEYWORD)] string keyname,
-            out float value,
-            [MarshalAs(UnmanagedType.LPStr, SizeConst = FLEN_COMMENT)] StringBuilder comm,
-            out int status);
-
-        public static float fits_read_key_float(IntPtr fptr, string keyname) {
-            _fits_read_key_float(fptr, keyname, out var value, null, out var status);
-            CheckStatus("fits_read_key_long", status);
-            return value;
-        }
-
-        // fits_read_key_double      ffgkyj
-        [DllImport("cfitsionative.dll", CharSet = CharSet.Ansi, EntryPoint = "ffgkyj", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int _fits_read_key_lng(
-            IntPtr fptr,
-            [MarshalAs(UnmanagedType.LPStr, SizeConst = FLEN_KEYWORD)] string keyname,
-            out long value,
-            [MarshalAs(UnmanagedType.LPStr, SizeConst = FLEN_COMMENT)] StringBuilder comm,
-            out int status);
-
-        public static long fits_read_key_lng(IntPtr fptr, string keyname) {
-            _fits_read_key_lng(fptr, keyname, out var value, null, out var status);
-            CheckStatus("fits_read_key_long", status);
-            return value;
+            return CFitsioExtensions.fits_read_key_float(filePtr, keyname);
         }
 
         public FITSHeader ReadHeader() {
@@ -474,6 +363,185 @@ namespace NINA.Plugin.Livestack {
                 }
 
                 _disposed = true;
+            }
+        }
+
+        public void ReadPixelRowAsFloat(int row, Span<float> destination) {
+            if ((uint)row >= (uint)Height) throw new ArgumentOutOfRangeException(nameof(row));
+            if (destination.Length < Width) throw new ArgumentException("Destination span too small.", nameof(destination));
+
+            destination = destination.Slice(0, Width);
+
+            switch (BitPix) {
+                case BITPIX.FLOAT_IMG: {
+                        ReadPixelRow(row, destination);
+                        NormalizeSpanInPlace(destination);
+                        return;
+                    }
+
+                case BITPIX.DOUBLE_IMG: {
+                        double[] tmp = ArrayPool<double>.Shared.Rent(Width);
+                        try {
+                            var tmpRow = tmp.AsSpan(0, Width);
+                            ReadPixelRow(row, tmpRow);
+                            ConvertDoubleToFloat_Exact(tmpRow, destination);
+                            NormalizeSpanInPlace(destination);
+                        } finally { ArrayPool<double>.Shared.Return(tmp); }
+                        return;
+                    }
+
+                case BITPIX.BYTE_IMG: {
+                        byte[] tmp = ArrayPool<byte>.Shared.Rent(Width);
+                        try {
+                            var tmpRow = tmp.AsSpan(0, Width);
+                            ReadPixelRow(row, tmpRow);
+                            ConvertByteToFloat_Exact(tmpRow, destination);
+                        } finally { ArrayPool<byte>.Shared.Return(tmp); }
+                        return;
+                    }
+
+                case BITPIX.SHORT_IMG: {
+                        ushort[] tmp = ArrayPool<ushort>.Shared.Rent(Width);
+                        try {
+                            var tmpRow = tmp.AsSpan(0, Width);
+                            ReadPixelRow(row, tmpRow);
+                            ConvertUShortToFloat_Exact(tmpRow, destination);
+                        } finally { ArrayPool<ushort>.Shared.Return(tmp); }
+                        return;
+                    }
+
+                case BITPIX.LONG_IMG: {
+                        int[] tmp = ArrayPool<int>.Shared.Rent(Width);
+                        try {
+                            var tmpRow = tmp.AsSpan(0, Width);
+                            ReadPixelRow(row, tmpRow);
+                            ConvertIntToFloat_Exact(tmpRow, destination);
+                        } finally { ArrayPool<int>.Shared.Return(tmp); }
+                        return;
+                    }
+
+                case BITPIX.LONGLONG_IMG: {
+                        long[] tmp = ArrayPool<long>.Shared.Rent(Width);
+                        try {
+                            var tmpRow = tmp.AsSpan(0, Width);
+                            ReadPixelRow(row, tmpRow);
+                            ConvertLongToFloat_Exact(tmpRow, destination);
+                        } finally { ArrayPool<long>.Shared.Return(tmp); }
+                        return;
+                    }
+
+                default:
+                    throw new ArgumentException($"Invalid BITPIX {BitPix}", nameof(BitPix));
+            }
+        }
+
+        private unsafe void ReadPixelRow<T>(int row, Span<T> destination) where T : unmanaged {
+            if ((uint)row >= (uint)Height) throw new ArgumentOutOfRangeException(nameof(row));
+            if (destination.Length < Width) throw new ArgumentException("Destination span too small.", nameof(destination));
+
+            destination = destination.Slice(0, Width);
+
+            int* firstpix = stackalloc int[2];
+            firstpix[0] = 1;
+            firstpix[1] = row + 1;
+
+            DATATYPE datatype = GetDataType(typeof(T));
+
+            T nulVal = default;
+            nint nulPtr = (nint)(&nulVal);
+
+            fixed (T* dstPtr = destination) {
+                int anynul;
+                int status;
+
+                int result = CFitsioExtensions.fits_read_pix(
+                    filePtr,
+                    datatype,
+                    (IntPtr)firstpix,
+                    Width,
+                    nulPtr,
+                    (nint)dstPtr,
+                    out anynul,
+                    out status);
+
+                CheckStatus("fits_read_pix", status);
+            }
+        }
+
+        private static void ConvertByteToFloat_Exact(ReadOnlySpan<byte> src, Span<float> dst) {
+            if (dst.Length < src.Length) throw new ArgumentException("dst too small", nameof(dst));
+            float denom = (float)byte.MaxValue; // 255f
+            for (int i = 0; i < src.Length; i++)
+                dst[i] = src[i] / denom;
+        }
+
+        // ushort: pixels[i] = (float)(src[i] / (double)ushort.MaxValue);
+        private static void ConvertUShortToFloat_Exact(ReadOnlySpan<ushort> src, Span<float> dst) {
+            if (dst.Length < src.Length) throw new ArgumentException("dst too small", nameof(dst));
+            double denom = (double)ushort.MaxValue; // 65535d
+            for (int i = 0; i < src.Length; i++)
+                dst[i] = (float)(src[i] / denom);
+        }
+
+        // int: pixels[i] = (float)(((double)src[i] - int.MinValue) / ((double)int.MaxValue - int.MinValue));
+        private static void ConvertIntToFloat_Exact(ReadOnlySpan<int> src, Span<float> dst) {
+            if (dst.Length < src.Length) throw new ArgumentException("dst too small", nameof(dst));
+
+            const double range = (double)int.MaxValue - (double)int.MinValue; // 2^32 - 1
+            const double invRange = 1.0 / range;
+            const double offset = -(double)int.MinValue * invRange;
+
+            int i = 0;
+            int last = src.Length - (src.Length % 4);
+
+            for (; i < last; i += 4) {
+                dst[i + 0] = (float)((double)src[i + 0] * invRange + offset);
+                dst[i + 1] = (float)((double)src[i + 1] * invRange + offset);
+                dst[i + 2] = (float)((double)src[i + 2] * invRange + offset);
+                dst[i + 3] = (float)((double)src[i + 3] * invRange + offset);
+            }
+
+            for (; i < src.Length; i++)
+                dst[i] = (float)((double)src[i] * invRange + offset);
+        }
+
+        // long: pixels[i] = (float)(((double)src[i] - long.MinValue) / ((double)long.MaxValue - long.MinValue));
+        private static void ConvertLongToFloat_Exact(ReadOnlySpan<long> src, Span<float> dst) {
+            if (dst.Length < src.Length) throw new ArgumentException("dst too small", nameof(dst));
+
+            const double range = (double)long.MaxValue - (double)long.MinValue; // 2^64 - 1
+            const double invRange = 1.0 / range;
+            const double offset = -(double)long.MinValue * invRange;
+
+            int i = 0;
+            int last = src.Length - (src.Length % 4);
+
+            for (; i < last; i += 4) {
+                dst[i + 0] = (float)((double)src[i + 0] * invRange + offset);
+                dst[i + 1] = (float)((double)src[i + 1] * invRange + offset);
+                dst[i + 2] = (float)((double)src[i + 2] * invRange + offset);
+                dst[i + 3] = (float)((double)src[i + 3] * invRange + offset);
+            }
+
+            for (; i < src.Length; i++)
+                dst[i] = (float)((double)src[i] * invRange + offset);
+        }
+
+        // double: pixels[i] = (float)src[i];
+        private static void ConvertDoubleToFloat_Exact(ReadOnlySpan<double> src, Span<float> dst) {
+            if (dst.Length < src.Length) throw new ArgumentException("dst too small", nameof(dst));
+            for (int i = 0; i < src.Length; i++)
+                dst[i] = (float)src[i];
+        }
+
+        private void NormalizeSpanInPlace(Span<float> data) {
+            if (DataMin != null && DataMax != null && DataMin < DataMax) {
+                double min = DataMin.Value;
+                double range = DataMax.Value - DataMin.Value;
+
+                for (int i = 0; i < data.Length; i++) {
+                    data[i] = (float)((data[i] - min) / range);
+                }
             }
         }
     }

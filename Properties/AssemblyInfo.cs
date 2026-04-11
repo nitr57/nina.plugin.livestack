@@ -25,7 +25,7 @@ using System.Windows.Markup;
 //[assembly: AssemblyCopyright("Copyright © 2024-2025 Stefan Berg")]
 
 // The minimum Version of N.I.N.A. that this plugin is compatible with
-[assembly: AssemblyMetadata("MinimumApplicationVersion", "3.2.0.1018")]
+[assembly: AssemblyMetadata("MinimumApplicationVersion", "3.2.0.9001")]
 
 // The license your plugin code is using
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
