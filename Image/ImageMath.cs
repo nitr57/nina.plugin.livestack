@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -19,8 +19,31 @@ namespace NINA.Plugin.Livestack.Image {
         }
 
         public void SequentialStack(float[] image, float[] stack, int stackImageCount) {
-            for (int i = 0; i < stack.Length; i++) {
-                stack[i] = (stackImageCount * stack[i] + image[i]) / (stackImageCount + 1);
+            int length = stack.Length;
+            float nextCount = stackImageCount + 1f;
+
+            if (!System.Numerics.Vector.IsHardwareAccelerated || length < System.Numerics.Vector<float>.Count) {
+                for (int i = 0; i < length; i++) {
+                    stack[i] = (stackImageCount * stack[i] + image[i]) / nextCount;
+                }
+                return;
+            }
+
+            int simd = System.Numerics.Vector<float>.Count;
+            int last = length - (length % simd);
+            int index = 0;
+
+            var currentCount = new System.Numerics.Vector<float>(stackImageCount);
+            var nextCountVector = new System.Numerics.Vector<float>(nextCount);
+
+            for (; index < last; index += simd) {
+                var currentStack = new System.Numerics.Vector<float>(stack, index);
+                var currentImage = new System.Numerics.Vector<float>(image, index);
+                (((currentStack * currentCount) + currentImage) / nextCountVector).CopyTo(stack, index);
+            }
+
+            for (; index < length; index++) {
+                stack[index] = (stackImageCount * stack[index] + image[index]) / nextCount;
             }
         }
 

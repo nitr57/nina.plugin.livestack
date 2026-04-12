@@ -1,4 +1,4 @@
-﻿using Accord;
+using Accord;
 using MathNet.Numerics.LinearAlgebra.Double;
 using MathNet.Numerics.Statistics;
 using NINA.Image.ImageAnalysis;
@@ -274,99 +274,109 @@ namespace NINA.Plugin.Livestack.Image {
         }
 
         public float[] ApplyAffineTransformation(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
-            // Create a new output array to hold the transformed image
             float[] transformedImageData = new float[width * height];
+            var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
 
-            // Loop through all pixels in the source image
-            for (int y = 0; y < height; y++) {
+            ProcessAffineRows(width, height, y => {
+                int rowOffset = y * width;
+                double srcX = (b * y) + tx;
+                double srcY = (d * y) + ty;
+
                 for (int x = 0; x < width; x++) {
-                    // Apply the affine transformation to each pixel's coordinates
-                    var transformedCoords = ApplyAffineMatrix(x, y, affineMatrix);
-
-                    // Map transformed coordinates back to the new image
-                    int newX = (int)transformedCoords.X;
-                    int newY = (int)transformedCoords.Y;
+                    int newX = (int)(float)srcX;
+                    int newY = (int)(float)srcY;
                     if (flippedImage) {
                         newX = width - 1 - newX;
                         newY = height - 1 - newY;
                     }
 
-                    // Ensure we stay within the image bounds
-                    if (newX >= 0 && newX < width && newY >= 0 && newY < height) {
-                        // Get the interpolated pixel value from the source image data at the transformed coordinates
-                        float newPixelValue = GetInterpolatedPixelValue(newX, newY, sourceImageData, width, height);
-
-                        // Set the pixel in the transformed image data
-                        transformedImageData[y * width + x] = newPixelValue;
+                    if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
+                        transformedImageData[rowOffset + x] = sourceImageData[newY * width + newX];
                     }
-                }
-            }
 
+                    srcX += a;
+                    srcY += c;
+                }
+            });
             return transformedImageData;
         }
 
         public float[] ApplyAffineTransformation(ushort[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
-            // Create a new output array to hold the transformed image
             float[] transformedImageData = new float[width * height];
+            var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
 
-            // Loop through all pixels in the source image
-            for (int y = 0; y < height; y++) {
+            ProcessAffineRows(width, height, y => {
+                int rowOffset = y * width;
+                double srcX = (b * y) + tx;
+                double srcY = (d * y) + ty;
+
                 for (int x = 0; x < width; x++) {
-                    // Apply the affine transformation to each pixel's coordinates
-                    var transformedCoords = ApplyAffineMatrix(x, y, affineMatrix);
-
-                    // Map transformed coordinates back to the new image
-                    int newX = (int)transformedCoords.X;
-                    int newY = (int)transformedCoords.Y;
+                    int newX = (int)(float)srcX;
+                    int newY = (int)(float)srcY;
                     if (flippedImage) {
                         newX = width - 1 - newX;
                         newY = height - 1 - newY;
                     }
 
-                    // Ensure we stay within the image bounds
-                    if (newX >= 0 && newX < width && newY >= 0 && newY < height) {
-                        // Get the interpolated pixel value from the source image data at the transformed coordinates
-                        float newPixelValue = GetInterpolatedPixelValue(newX, newY, sourceImageData, width, height);
-
-                        // Set the pixel in the transformed image data
-                        transformedImageData[y * width + x] = newPixelValue;
+                    if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
+                        transformedImageData[rowOffset + x] = sourceImageData[newY * width + newX] / (float)ushort.MaxValue;
                     }
-                }
-            }
 
+                    srcX += a;
+                    srcY += c;
+                }
+            });
             return transformedImageData;
         }
 
         public ushort[] ApplyAffineTransformationAsUshort(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
-            // Create a new output array to hold the transformed image
             ushort[] transformedImageData = new ushort[width * height];
+            var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
 
-            // Loop through all pixels in the source image
-            for (int y = 0; y < height; y++) {
+            ProcessAffineRows(width, height, y => {
+                int rowOffset = y * width;
+                double srcX = (b * y) + tx;
+                double srcY = (d * y) + ty;
+
                 for (int x = 0; x < width; x++) {
-                    // Apply the affine transformation to each pixel's coordinates
-                    var transformedCoords = ApplyAffineMatrix(x, y, affineMatrix);
-
-                    // Map transformed coordinates back to the new image
-                    int newX = (int)transformedCoords.X;
-                    int newY = (int)transformedCoords.Y;
+                    int newX = (int)(float)srcX;
+                    int newY = (int)(float)srcY;
                     if (flippedImage) {
                         newX = width - 1 - newX;
                         newY = height - 1 - newY;
                     }
 
-                    // Ensure we stay within the image bounds
-                    if (newX >= 0 && newX < width && newY >= 0 && newY < height) {
-                        // Get the interpolated pixel value from the source image data at the transformed coordinates
-                        float newPixelValue = GetInterpolatedPixelValue(newX, newY, sourceImageData, width, height);
-
-                        // Set the pixel in the transformed image data
-                        transformedImageData[y * width + x] = (ushort)Math.Clamp(newPixelValue * ushort.MaxValue, 0, ushort.MaxValue);
+                    if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
+                        float newPixelValue = sourceImageData[newY * width + newX];
+                        transformedImageData[rowOffset + x] = (ushort)Math.Clamp(newPixelValue * ushort.MaxValue, 0, ushort.MaxValue);
                     }
+
+                    srcX += a;
+                    srcY += c;
+                }
+            });
+            return transformedImageData;
+        }
+
+        private static (double A, double B, double Tx, double C, double D, double Ty) GetAffineCoefficients(double[,] affineMatrix) {
+            return (
+                affineMatrix[0, 0],
+                affineMatrix[0, 1],
+                affineMatrix[0, 2],
+                affineMatrix[1, 0],
+                affineMatrix[1, 1],
+                affineMatrix[1, 2]);
+        }
+
+        private static void ProcessAffineRows(int width, int height, Action<int> processRow) {
+            const int minimumPixelsForParallel = 256 * 256;
+            if (Environment.ProcessorCount > 1 && height > 1 && (long)width * height >= minimumPixelsForParallel) {
+                Parallel.For(0, height, processRow);
+            } else {
+                for (int y = 0; y < height; y++) {
+                    processRow(y);
                 }
             }
-
-            return transformedImageData;
         }
 
         private double[,] ComputeAffineTransformationMatrix(double[,] sourcePoints, double[,] targetPoints) {

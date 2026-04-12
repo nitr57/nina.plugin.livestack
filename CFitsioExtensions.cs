@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -10,6 +11,13 @@ namespace NINA.Plugin.Livestack {
     internal class CFitsioExtensions {
         private const int FLEN_KEYWORD = 75;
         private const int FLEN_COMMENT = 73;
+
+        static CFitsioExtensions() {
+            // Reuse N.I.N.A.'s existing CFITSIO preload path before the diskfile
+            // P/Invokes run, otherwise these calls can bind before CfitsioNative
+            // has loaded the native library from External\x64\Cfitsio.
+            RuntimeHelpers.RunClassConstructor(typeof(NINA.Image.FileFormat.FITS.CfitsioNative).TypeHandle);
+        }
 
         [DllImport("cfitsionative.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "ffdkinit")]
         public static extern int fits_create_diskfile(out nint fptr, [MarshalAs(UnmanagedType.LPStr)] string filename, out int status);
