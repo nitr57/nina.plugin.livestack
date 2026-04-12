@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Enum;
 using NINA.Core.Model;
@@ -244,7 +244,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     try {
                         var statistics = await e.Image.RawImageData.Statistics;
                         var starDetectionAnalysis = e.Image.RawImageData.StarDetectionAnalysis;
-                        if (starDetectionAnalysis is null || starDetectionAnalysis.DetectedStars <= 0) {
+                        if (NeedsStarDetection(starDetectionAnalysis)) {
                             var render = e.Image.RawImageData.RenderImage();
                             render = await render.Stretch(profileService.ActiveProfile.ImageSettings.AutoStretchFactor, profileService.ActiveProfile.ImageSettings.BlackClipping, profileService.ActiveProfile.ImageSettings.UnlinkedStretch);
                             render = await render.DetectStars(false, profileService.ActiveProfile.ImageSettings.StarSensitivity, profileService.ActiveProfile.ImageSettings.NoiseReduction, default, default);
@@ -282,6 +282,10 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     }
                 });
             }
+        }
+
+        private static bool NeedsStarDetection(IStarDetectionAnalysis analysis) {
+            return analysis is null || analysis.DetectedStars <= 0;
         }
 
         private bool ItemPassesQuality(LiveStackItem item) {
@@ -364,7 +368,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             // We only need to detect the stars in one channel for OSC. The others should match.
             var channelStatistics = await redChannelData.Statistics;
             var channelRender = redChannelData.RenderImage();
-            if (redChannelData.StarDetectionAnalysis is null || redChannelData.StarDetectionAnalysis.DetectedStars < 0) {
+            if (NeedsStarDetection(redChannelData.StarDetectionAnalysis)) {
                 var render = channelRender.RawImageData.RenderImage();
                 render = await render.Stretch(profileService.ActiveProfile.ImageSettings.AutoStretchFactor, profileService.ActiveProfile.ImageSettings.BlackClipping, profileService.ActiveProfile.ImageSettings.UnlinkedStretch);
                 render = await render.DetectStars(false, profileService.ActiveProfile.ImageSettings.StarSensitivity, profileService.ActiveProfile.ImageSettings.NoiseReduction, token, default);

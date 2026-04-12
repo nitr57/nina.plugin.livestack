@@ -1,9 +1,11 @@
 using MathNet.Numerics.Statistics;
 using Moq;
 using NINA.Core.Utility.WindowService;
+using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
 using NINA.Plugin.Livestack;
 using NINA.Plugin.Livestack.Image;
+using NINA.Plugin.Livestack.LivestackDockables;
 using NINA.Profile.Interfaces;
 using Accord;
 using System.Reflection;
@@ -169,6 +171,18 @@ namespace nina.plugin.livestack.test {
             Assert.That(matrix[1, 0], Is.EqualTo(0d).Within(1e-6));
             Assert.That(matrix[0, 2], Is.EqualTo(12d).Within(1e-6));
             Assert.That(matrix[1, 2], Is.EqualTo(-7d).Within(1e-6));
+        }
+
+        [Test]
+        public void NeedsStarDetection_RedetectsWhenDetectedStarsIsZero() {
+            var needsStarDetectionMethod = typeof(LivestackDockable).GetMethod("NeedsStarDetection", BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.That(needsStarDetectionMethod, Is.Not.Null);
+
+            Assert.That((bool)needsStarDetectionMethod!.Invoke(null, new object?[] { null })!, Is.True);
+            Assert.That((bool)needsStarDetectionMethod.Invoke(null, new object[] { new StarDetectionAnalysis { DetectedStars = -1 } })!, Is.True);
+            Assert.That((bool)needsStarDetectionMethod.Invoke(null, new object[] { new StarDetectionAnalysis { DetectedStars = 0 } })!, Is.True);
+            Assert.That((bool)needsStarDetectionMethod.Invoke(null, new object[] { new StarDetectionAnalysis { DetectedStars = 1 } })!, Is.False);
         }
     }
 
