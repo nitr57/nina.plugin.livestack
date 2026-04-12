@@ -94,8 +94,18 @@ namespace NINA.Plugin.Livestack.Image {
                 .Select(m => (Ref: referenceStars[m.Index1], Src: stars[m.Index2], Votes: m.Votes))
                 .ToList();
 
+            return EstimateAffineTransformation(pairs);
+        }
+
+        private double[,] EstimateAffineTransformation(List<(Point Ref, Point Src, int Votes)> pairs) {
             if (pairs.Count < 3)
                 throw new InvalidOperationException("Not enough matches for affine estimation.");
+
+            if (pairs.Count < 8) {
+                // Sparse frames can still produce a valid affine solution even when there
+                // are not enough correspondences to satisfy the RANSAC inlier threshold.
+                return RefineAffineLeastSquares(pairs, Enumerable.Range(0, pairs.Count).ToList());
+            }
 
             // PASS 1: generous threshold to bootstrap
             var (model1, inliers1) = FitAffineRansac(

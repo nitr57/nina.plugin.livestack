@@ -5,6 +5,8 @@ using NINA.Image.Interfaces;
 using NINA.Plugin.Livestack;
 using NINA.Plugin.Livestack.Image;
 using NINA.Profile.Interfaces;
+using Accord;
+using System.Reflection;
 
 namespace nina.plugin.livestack.test {
 
@@ -142,6 +144,31 @@ namespace nina.plugin.livestack.test {
                     Directory.Delete(tempRoot);
                 }
             }
+        }
+
+        [Test]
+        public void ComputeAffineTransformation_SucceedsWithSparseCorrespondences() {
+            var transformer = ImageTransformer2.Instance;
+            var estimateMethod = typeof(ImageTransformer2).GetMethod("EstimateAffineTransformation", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.That(estimateMethod, Is.Not.Null);
+
+            var sparsePairs = new List<(Point Ref, Point Src, int Votes)> {
+                (new Point(0, 0), new Point(12, -7), 10),
+                (new Point(100, 0), new Point(112, -7), 10),
+                (new Point(0, 100), new Point(12, 93), 10),
+                (new Point(100, 100), new Point(112, 93), 10),
+                (new Point(50, 30), new Point(62, 23), 10)
+            };
+
+            var matrix = (double[,])estimateMethod!.Invoke(transformer, new object[] { sparsePairs })!;
+
+            Assert.That(matrix[0, 0], Is.EqualTo(1d).Within(1e-6));
+            Assert.That(matrix[1, 1], Is.EqualTo(1d).Within(1e-6));
+            Assert.That(matrix[0, 1], Is.EqualTo(0d).Within(1e-6));
+            Assert.That(matrix[1, 0], Is.EqualTo(0d).Within(1e-6));
+            Assert.That(matrix[0, 2], Is.EqualTo(12d).Within(1e-6));
+            Assert.That(matrix[1, 2], Is.EqualTo(-7d).Within(1e-6));
         }
     }
 
