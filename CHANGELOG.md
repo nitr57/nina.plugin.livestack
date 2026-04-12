@@ -3,9 +3,12 @@
 ## 1.1.0.0
 - Saving and reading FITS files now use the CFITSIO diskfile APIs so square or curly bracket characters in file names work correctly
 - Image alignment now uses RANSAC to improve robustness against outliers
+- Sparse affine matches now fall back to a direct least-squares solve instead of failing when only a few good correspondences are available
 - Improved star selection and triangle matching for more robust and faster alignment
 - Improved live stack performance with vectorized stack accumulation and faster affine image transforms
+- Improved live stack performance under low-memory constraints by avoiding redundant OSC RGB realignment, skipping hidden RGB composite refresh work, and reducing flat-stacking allocations during percentile clipping
 - Improved Image calibration to utilize SIMD instructions for better performance and reduced memory usage
+- Fixed zero-star analysis fallback so live stacking correctly re-runs star detection when a frame reports no detected stars
 
 ## 1.0.1.7
 - A broadcast on IMessageBroker will be sent with the topic "Livestack_LivestackDockable_StatusBroadcast" when the plugin's running status changes.

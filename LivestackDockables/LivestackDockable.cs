@@ -237,6 +237,14 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             LivestackMediator.PluginSettings.SetValueString(nameof(QualityGates), QualityGates.FromListToString());
         }
 
+        partial void OnSelectedTabChanged(IStackTab value) {
+            if (value == null) {
+                return;
+            }
+
+            _ = RefreshSelectedTabAsync(value);
+        }
+
         private async Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
             if (e.Image.RawImageData.MetaData.Image.ImageType == NINA.Equipment.Model.CaptureSequence.ImageTypes.LIGHT || e.Image.RawImageData.MetaData.Image.ImageType == NINA.Equipment.Model.CaptureSequence.ImageTypes.SNAPSHOT) {
                 _ = Task.Run(async () => {
@@ -312,6 +320,27 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         private static bool NeedsStarDetection(IStarDetectionAnalysis analysis) {
             return analysis is null || analysis.DetectedStars <= 0;
+        }
+
+        private async Task RefreshSelectedTabAsync(IStackTab tab) {
+            try {
+                while (ReferenceEquals(SelectedTab, tab) && tab.Locked) {
+                    await Task.Delay(25);
+                }
+
+                if (!ReferenceEquals(SelectedTab, tab)) {
+                    return;
+                }
+
+                if (tab is ColorCombinationTab colorTab) {
+                    if (colorTab.NeedsRefresh || colorTab.StackImage == null) {
+                        await colorTab.Refresh(CancellationToken.None);
+                    }
+                } else if (tab is LiveStackTab liveTab && liveTab.StackImage == null) {
+                    await liveTab.Refresh(CancellationToken.None);
+                }
+            } catch {
+            }
         }
 
         private bool ItemPassesQuality(LiveStackItem item) {
@@ -451,7 +480,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
             var colorTab = Tabs.Where(x => x is ColorCombinationTab && x.Target == item.Target).FirstOrDefault() as ColorCombinationTab;
             if (colorTab == null) {
-                colorTab = new ColorCombinationTab(profileService, redTab, greenTab, blueTab);
+                colorTab = new ColorCombinationTab(profileService, redTab, greenTab, blueTab, channelsAlreadyAligned: true);
                 Tabs.Add(colorTab);
             }
             if (LivestackMediator.Plugin.SaveStackedLights) {
@@ -489,19 +518,28 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
                 var colorTab = Tabs.Where(x => x is ColorCombinationTab && x.Target == tab.Target).FirstOrDefault() as ColorCombinationTab;
                 if (colorTab != null) {
-                    StatusUpdate("Refreshing color combined stack", item);
-                    await colorTab.Refresh(token);
+                    colorTab.MarkDirty();
+                    if (ShouldRefreshColorTab(colorTab)) {
+                        StatusUpdate("Refreshing color combined stack", item);
+                        await colorTab.Refresh(token);
 
-                    if (LivestackMediator.Plugin.SaveStackedLights) {
-                        StatusUpdate("Saving color combined stack", item);
-                        colorTab.AutoSaveToDisk();
+                        if (LivestackMediator.Plugin.SaveStackedLights) {
+                            StatusUpdate("Saving color combined stack", item);
+                            colorTab.AutoSaveToDisk();
+                        }
+
+                        _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Color(colorTab.StackCountRed, colorTab.StackCountGreen, colorTab.StackCountBlue, colorTab.Filter, colorTab.Target, colorTab.StackImage), correlation));
                     }
-
-                    _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Color(colorTab.StackCountRed, colorTab.StackCountGreen, colorTab.StackCountBlue, colorTab.Filter, colorTab.Target, colorTab.StackImage), correlation));
                 }
             } finally {
                 tab.Locked = false;
             }
+        }
+
+        private bool ShouldRefreshColorTab(ColorCombinationTab colorTab) {
+            return ReferenceEquals(SelectedTab, colorTab)
+                || colorTab.StackImage == null
+                || LivestackMediator.Plugin.SaveStackedLights;
         }
 
         private float[] CalibrateFrame(LiveStackItem item) {

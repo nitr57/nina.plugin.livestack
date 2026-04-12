@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -6,7 +7,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Drawing.Imaging;
 using System.Drawing;
-using MathNet.Numerics.Statistics;
 
 namespace NINA.Plugin.Livestack.Image {
 
@@ -78,42 +78,66 @@ namespace NINA.Plugin.Livestack.Image {
 
             float[] master = new float[totalPixels];
 
-            for (int idxRow = 0; idxRow < height; idxRow++) {
-                List<float[]> pixelRows = new List<float[]>();
+            float[][] rowBuffers = new float[numberOfImages][];
+            float[] pixelValues = ArrayPool<float>.Shared.Rent(numberOfImages);
+            float lowerPercentileSingle = (float)lowerPercentile;
+            float upperPercentileSingle = (float)upperPercentile;
 
-                for (int i = 0; i < images.Count; i++) {
-                    var pixel = images[i].ReadPixelRowAsFloat(idxRow);
-                    pixelRows.Add(pixel);
+            try {
+                for (int i = 0; i < numberOfImages; i++) {
+                    rowBuffers[i] = ArrayPool<float>.Shared.Rent(width);
                 }
 
-                for (int idxCol = 0; idxCol < width; idxCol++) {
-                    var pixelIndex = idxRow * width + idxCol;
-
-                    float[] pixelValues = new float[numberOfImages];
-                    for (int i = 0; i < images.Count; i++) {
-                        var pixel = pixelRows[i][idxCol];
-                        pixel = pixel * normalization[i];
-                        pixelValues[i] = pixel;
+                for (int idxRow = 0; idxRow < height; idxRow++) {
+                    for (int i = 0; i < numberOfImages; i++) {
+                        images[i].ReadPixelRowAsFloat(idxRow, rowBuffers[i]);
                     }
 
-                    var median = pixelValues.Median();
-
-                    float sum = 0;
-                    float count = 0;
-                    foreach (var pixel in pixelValues) {
-                        if (median - (median * lowerPercentile) <= pixel && pixel <= median + (median * upperPercentile)) {
-                            sum += pixel;
-                            count++;
+                    int rowOffset = idxRow * width;
+                    for (int idxCol = 0; idxCol < width; idxCol++) {
+                        for (int i = 0; i < numberOfImages; i++) {
+                            pixelValues[i] = rowBuffers[i][idxCol] * normalization[i];
                         }
-                    }
-                    if (count == 0) {
-                        master[pixelIndex] = median;
-                    } else {
-                        master[pixelIndex] = sum / count;
+
+                        Array.Sort(pixelValues, 0, numberOfImages);
+                        float median = GetMedianFromSorted(pixelValues, numberOfImages);
+                        float lowerLimit = median - (median * lowerPercentileSingle);
+                        float upperLimit = median + (median * upperPercentileSingle);
+                        float minAccepted = Math.Min(lowerLimit, upperLimit);
+                        float maxAccepted = Math.Max(lowerLimit, upperLimit);
+
+                        float sum = 0f;
+                        int count = 0;
+                        for (int i = 0; i < numberOfImages; i++) {
+                            float pixel = pixelValues[i];
+                            if (pixel >= minAccepted && pixel <= maxAccepted) {
+                                sum += pixel;
+                                count++;
+                            }
+                        }
+
+                        master[rowOffset + idxCol] = count == 0 ? median : sum / count;
                     }
                 }
+            } finally {
+                for (int i = 0; i < rowBuffers.Length; i++) {
+                    if (rowBuffers[i] != null) {
+                        ArrayPool<float>.Shared.Return(rowBuffers[i]);
+                    }
+                }
+
+                ArrayPool<float>.Shared.Return(pixelValues);
             }
             return master;
+        }
+
+        private static float GetMedianFromSorted(float[] values, int length) {
+            int middle = length / 2;
+            if ((length & 1) == 1) {
+                return values[middle];
+            }
+
+            return (values[middle - 1] + values[middle]) * 0.5f;
         }
 
         public Bitmap DownsampleGray16(Bitmap input, int factor) {

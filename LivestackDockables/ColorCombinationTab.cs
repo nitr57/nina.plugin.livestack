@@ -1,4 +1,4 @@
-﻿using NINA.Image.ImageAnalysis;
+using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Plugin.Livestack.Image;
 using NINA.Profile.Interfaces;
@@ -30,12 +30,13 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
     public partial class ColorCombinationTab : BaseVM, IStackTab {
 
-        public ColorCombinationTab(IProfileService profileService, LiveStackTab red, LiveStackTab green, LiveStackTab blue) : base(profileService) {
+        public ColorCombinationTab(IProfileService profileService, LiveStackTab red, LiveStackTab green, LiveStackTab blue, bool channelsAlreadyAligned = false) : base(profileService) {
             this.Target = red.Target;
             this.profileService = profileService;
             this.red = red;
             this.green = green;
             this.blue = blue;
+            this.channelsAlreadyAligned = channelsAlreadyAligned;
             redStretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
             greenStretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
             blueStretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
@@ -119,6 +120,9 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         private readonly LiveStackTab red;
         private readonly LiveStackTab green;
         private readonly LiveStackTab blue;
+        private readonly bool channelsAlreadyAligned;
+
+        public bool NeedsRefresh { get; private set; } = true;
 
         [RelayCommand]
         public async Task Refresh(CancellationToken token) {
@@ -130,8 +134,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                         StackCountGreen = green.StackCount;
                         StackCountBlue = blue.StackCount;
 
-                        var greenData = AlignTab(red, green);
-                        var blueData = AlignTab(red, blue);
+                        var greenData = channelsAlreadyAligned ? green.Stack : AlignTab(red, green);
+                        var blueData = channelsAlreadyAligned ? blue.Stack : AlignTab(red, blue);
 
                         using var redBitmap = LivestackMediator.GetImageMath().CreateGrayBitmap(red.Stack, red.Properties.Width, red.Properties.Height);
                         var filter = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(redBitmap.Median, redBitmap.MedianAbsoluteDeviation, red.Properties.BitDepth), RedStretchFactor, RedBlackClipping, PixelFormats.Gray16);
@@ -169,6 +173,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
                         source.Freeze();
                         StackImage = source;
+                        NeedsRefresh = false;
                     } finally {
                         Locked = false;
                         GC.Collect();
@@ -176,6 +181,10 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     }
                 }, token);
             } catch { }
+        }
+
+        public void MarkDirty() {
+            NeedsRefresh = true;
         }
 
         [RelayCommand]

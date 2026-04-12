@@ -351,6 +351,53 @@ namespace nina.plugin.livestack.test {
             }
         }
 
+        [Test]
+        public void PercentileClipping_MatchesReferenceImplementation() {
+            var tempRoot = Path.Combine(Path.GetTempPath(), $"LivestackPercentile[{Guid.NewGuid():N}]");
+            Directory.CreateDirectory(tempRoot);
+
+            string[] filePaths = [
+                Path.Combine(tempRoot, "flat1.fits"),
+                Path.Combine(tempRoot, "flat2.fits"),
+                Path.Combine(tempRoot, "flat3.fits")
+            ];
+
+            float[][] sourceImages = [
+                [1f, 2f, 3f, 4f],
+                [2f, 4f, 6f, 8f],
+                [40f, 8f, 12f, 16f]
+            ];
+
+            float[] medians = [1f, 2f, 4f];
+
+            try {
+                for (int i = 0; i < filePaths.Length; i++) {
+                    var writer = new CFitsioFITSExtendedWriter(filePaths[i], sourceImages[i], 2, 2, NINA.Image.FileFormat.FITS.CfitsioNative.COMPRESSION.NOCOMPRESS);
+                    writer.AddHeader("MEDIAN", medians[i], "");
+                    writer.Close();
+                }
+
+                using var fits1 = new CFitsioFITSReader(filePaths[0]);
+                using var fits2 = new CFitsioFITSReader(filePaths[1]);
+                using var fits3 = new CFitsioFITSReader(filePaths[2]);
+
+                float[] actual = ImageMath.Instance.PercentileClipping([fits1, fits2, fits3], 0.2, 0.1);
+                float[] expected = PercentileClippingReference(sourceImages, medians, 0.2f, 0.1f, 2, 2);
+
+                FloatAssert.AreEqual(expected, actual, absTol: 0f, relTol: 0f);
+            } finally {
+                foreach (string filePath in filePaths) {
+                    if (File.Exists(filePath)) {
+                        File.Delete(filePath);
+                    }
+                }
+
+                if (Directory.Exists(tempRoot)) {
+                    Directory.Delete(tempRoot);
+                }
+            }
+        }
+
         private static List<Point> CreateSyntheticReferenceStars() {
             return new List<Point> {
                 new Point(120, 140),
@@ -522,6 +569,48 @@ namespace nina.plugin.livestack.test {
             }
 
             return transformedImageData;
+        }
+
+        private static float[] PercentileClippingReference(IReadOnlyList<float[]> images, IReadOnlyList<float> medians, float lowerPercentile, float upperPercentile, int width, int height) {
+            int imageCount = images.Count;
+            float[] normalization = new float[imageCount];
+            float referenceMedian = medians[0];
+            for (int i = 0; i < imageCount; i++) {
+                normalization[i] = referenceMedian / medians[i];
+            }
+
+            float[] result = new float[width * height];
+            float[] pixelValues = new float[imageCount];
+
+            for (int pixelIndex = 0; pixelIndex < result.Length; pixelIndex++) {
+                for (int i = 0; i < imageCount; i++) {
+                    pixelValues[i] = images[i][pixelIndex] * normalization[i];
+                }
+
+                Array.Sort(pixelValues);
+                float median = imageCount % 2 == 1
+                    ? pixelValues[imageCount / 2]
+                    : (pixelValues[(imageCount / 2) - 1] + pixelValues[imageCount / 2]) * 0.5f;
+
+                float lowerLimit = median - (median * lowerPercentile);
+                float upperLimit = median + (median * upperPercentile);
+                float minAccepted = Math.Min(lowerLimit, upperLimit);
+                float maxAccepted = Math.Max(lowerLimit, upperLimit);
+
+                float sum = 0f;
+                int count = 0;
+                for (int i = 0; i < imageCount; i++) {
+                    float pixel = pixelValues[i];
+                    if (pixel >= minAccepted && pixel <= maxAccepted) {
+                        sum += pixel;
+                        count++;
+                    }
+                }
+
+                result[pixelIndex] = count == 0 ? median : sum / count;
+            }
+
+            return result;
         }
     }
 
