@@ -1,4 +1,4 @@
-﻿using Accord;
+using Accord;
 using NINA.Image.ImageAnalysis;
 using System.Collections.Generic;
 

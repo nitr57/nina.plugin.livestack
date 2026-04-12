@@ -1,4 +1,4 @@
-﻿using NINA.Core.Utility;
+using NINA.Core.Utility;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.ImageData;

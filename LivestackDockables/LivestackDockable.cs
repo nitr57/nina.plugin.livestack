@@ -112,7 +112,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             return Task.Run(async () => {
                 try {
                     IsExpanded = false;
-                    queueEntries = 0;
+                    ResetQueueEntries();
                     channel = Channel.CreateBounded<LiveStackItem>(1000);
                     var localQueue = channel;
                     this.imageSaveMediator.BeforeFinalizeImageSaved += ImageSaveMediator_BeforeFinalizeImageSaved;
@@ -124,8 +124,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                         await foreach (var item in channel.Reader.ReadAllAsync(token)) {
                             try {
                                 StatusUpdate("Received new frame", item);
-                                Interlocked.Decrement(ref queueEntries);
-                                RaisePropertyChanged(nameof(QueueEntries));
+                                DecrementQueueEntries();
 
                                 try {
                                     if (item.StarList.Count < 8) {
@@ -168,7 +167,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     _ = messageBroker.Publish(new LiveStackStatusBroadcast(LiveStackStatus.Stopped, this.stackSessionId.Value));
                     this.stackSessionId = null;
                     IsExpanded = true;
-                    queueEntries = 0;
+                    ResetQueueEntries();
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
                 }
@@ -275,13 +274,40 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                                                                    analysis: starDetectionAnalysis,
                                                                    metaData: e.Image.RawImageData.MetaData));
 
-                        Interlocked.Increment(ref queueEntries);
-                        RaisePropertyChanged(nameof(QueueEntries));
+                        IncrementQueueEntries();
                     } catch (Exception ex) {
                         Logger.Error(ex);
                     }
                 });
             }
+        }
+
+        private void ResetQueueEntries() {
+            Interlocked.Exchange(ref queueEntries, 0);
+            NotifyQueueEntriesChanged();
+        }
+
+        private void IncrementQueueEntries() {
+            Interlocked.Increment(ref queueEntries);
+            NotifyQueueEntriesChanged();
+        }
+
+        private void DecrementQueueEntries() {
+            int updated = Interlocked.Decrement(ref queueEntries);
+            if (updated < 0) {
+                Interlocked.Exchange(ref queueEntries, 0);
+            }
+            NotifyQueueEntriesChanged();
+        }
+
+        private void NotifyQueueEntriesChanged() {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess() && !dispatcher.HasShutdownStarted) {
+                _ = dispatcher.BeginInvoke(new Action(() => RaisePropertyChanged(nameof(QueueEntries))));
+                return;
+            }
+
+            RaisePropertyChanged(nameof(QueueEntries));
         }
 
         private static bool NeedsStarDetection(IStarDetectionAnalysis analysis) {

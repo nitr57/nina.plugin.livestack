@@ -1,4 +1,4 @@
-﻿using NINA.Core.Utility;
+using NINA.Core.Utility;
 using NINA.Image.Interfaces;
 using NINA.Plugin.Interfaces;
 using NINA.Profile;

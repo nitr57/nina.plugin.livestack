@@ -1,4 +1,4 @@
-﻿using Accord;
+using Accord;
 using MathNet.Numerics.LinearAlgebra.Double;
 using NINA.Image.ImageAnalysis;
 using System;
