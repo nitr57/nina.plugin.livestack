@@ -1,6 +1,7 @@
 using MathNet.Numerics.Statistics;
 using Moq;
 using NINA.Core.Utility.WindowService;
+using NINA.Image.ImageAnalysis;
 using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
 using NINA.Plugin.Livestack;
@@ -174,6 +175,116 @@ namespace nina.plugin.livestack.test {
         }
 
         [Test]
+        public void GetStars_FiltersPoorQualityDetectionsWhenEnoughGoodStarsExist() {
+            var transformer = ImageTransformer2.Instance;
+            var stars = new List<DetectedStar>();
+
+            for (int i = 0; i < 12; i++) {
+                int x = 120 + ((i % 4) * 300);
+                int y = 140 + ((i / 4) * 250);
+                stars.Add(new DetectedStar {
+                    Position = new Point(x, y),
+                    BoundingBox = new System.Drawing.Rectangle(x - 5, y - 5, 10, 10),
+                    MaxBrightness = 18000 + (i * 250),
+                    Background = 600,
+                    HFR = 3.1 + ((i % 3) * 0.1)
+                });
+            }
+
+            var saturated = new DetectedStar {
+                Position = new Point(500, 900),
+                BoundingBox = new System.Drawing.Rectangle(495, 895, 10, 10),
+                MaxBrightness = 65535,
+                Background = 500,
+                HFR = 3.2
+            };
+            var edgeStar = new DetectedStar {
+                Position = new Point(2, 400),
+                BoundingBox = new System.Drawing.Rectangle(0, 395, 10, 10),
+                MaxBrightness = 21000,
+                Background = 500,
+                HFR = 3.2
+            };
+            var trailed = new DetectedStar {
+                Position = new Point(900, 700),
+                BoundingBox = new System.Drawing.Rectangle(892, 697, 18, 6),
+                MaxBrightness = 19000,
+                Background = 500,
+                HFR = 3.2
+            };
+            var bloated = new DetectedStar {
+                Position = new Point(1150, 720),
+                BoundingBox = new System.Drawing.Rectangle(1144, 714, 12, 12),
+                MaxBrightness = 19500,
+                Background = 500,
+                HFR = 12.5
+            };
+
+            stars.AddRange([saturated, edgeStar, trailed, bloated]);
+
+            var selected = transformer.GetStars(stars, 1600, 1200);
+
+            Assert.That(selected, Does.Not.Contain(saturated.Position));
+            Assert.That(selected, Does.Not.Contain(edgeStar.Position));
+            Assert.That(selected, Does.Not.Contain(trailed.Position));
+            Assert.That(selected, Does.Not.Contain(bloated.Position));
+            Assert.That(selected.Count, Is.EqualTo(12));
+        }
+
+        [Test]
+        public void ComputeAffineTransformation_RecoversKnownTransformWithOutliers() {
+            var transformer = ImageTransformer2.Instance;
+            var referenceStars = CreateSyntheticReferenceStars();
+
+            double[,] expected = new double[3, 3] {
+                { 0.9985, 0.0175, -12.75 },
+                { -0.0145, 1.0015, 9.25 },
+                { 0.0, 0.0, 1.0 }
+            };
+
+            var sourceStars = ApplyAffine(referenceStars, expected, seed: 41, jitter: 0.35f);
+            sourceStars.AddRange(new[] {
+                new Point(75, 70),
+                new Point(1490, 100),
+                new Point(1510, 1120),
+                new Point(210, 1050),
+                new Point(820, 610),
+                new Point(1280, 520)
+            });
+            Shuffle(sourceStars, seed: 99);
+
+            var actual = transformer.ComputeAffineTransformation(sourceStars, referenceStars);
+
+            AssertAffineClose(expected, actual, matrixTol: 0.02, translationTol: 1.2);
+            Assert.That(ComputeMedianResidual(referenceStars, ApplyAffine(referenceStars, expected), actual), Is.LessThan(1.2));
+        }
+
+        [Test]
+        public void ComputeAffineTransformation_RecoversMeridianFlipLikeRotation() {
+            var transformer = ImageTransformer2.Instance;
+            var referenceStars = CreateSyntheticReferenceStars();
+
+            double[,] expected = new double[3, 3] {
+                { -1.0, 0.0, 1600.0 },
+                { 0.0, -1.0, 1200.0 },
+                { 0.0, 0.0, 1.0 }
+            };
+
+            var sourceStars = ApplyAffine(referenceStars, expected, seed: 11, jitter: 0.2f);
+            sourceStars.AddRange(new[] {
+                new Point(40, 100),
+                new Point(1540, 180),
+                new Point(1470, 1090),
+                new Point(300, 1110)
+            });
+
+            var actual = transformer.ComputeAffineTransformation(sourceStars, referenceStars);
+
+            AssertAffineClose(expected, actual, matrixTol: 0.02, translationTol: 1.0);
+            Assert.That(transformer.IsFlippedImage(actual), Is.True);
+        }
+
+        [Test]
         public void NeedsStarDetection_RedetectsWhenDetectedStarsIsZero() {
             var needsStarDetectionMethod = typeof(LivestackDockable).GetMethod("NeedsStarDetection", BindingFlags.Static | BindingFlags.NonPublic);
 
@@ -238,6 +349,80 @@ namespace nina.plugin.livestack.test {
                     Assert.That(actualUshort, Is.EqualTo(expectedUshort));
                 }
             }
+        }
+
+        private static List<Point> CreateSyntheticReferenceStars() {
+            return new List<Point> {
+                new Point(120, 140),
+                new Point(420, 150),
+                new Point(760, 130),
+                new Point(1110, 180),
+                new Point(1420, 160),
+                new Point(160, 360),
+                new Point(510, 390),
+                new Point(840, 345),
+                new Point(1190, 410),
+                new Point(1450, 360),
+                new Point(110, 650),
+                new Point(470, 700),
+                new Point(760, 660),
+                new Point(1090, 720),
+                new Point(1430, 690),
+                new Point(180, 980),
+                new Point(520, 1020),
+                new Point(910, 960),
+                new Point(1260, 1040),
+                new Point(1460, 980)
+            };
+        }
+
+        private static List<Point> ApplyAffine(IEnumerable<Point> points, double[,] matrix, int seed = 0, float jitter = 0f) {
+            Random random = new Random(seed);
+            var transformed = new List<Point>();
+
+            foreach (var point in points) {
+                float x = (float)((matrix[0, 0] * point.X) + (matrix[0, 1] * point.Y) + matrix[0, 2]);
+                float y = (float)((matrix[1, 0] * point.X) + (matrix[1, 1] * point.Y) + matrix[1, 2]);
+
+                if (jitter > 0f) {
+                    x += (((float)random.NextDouble() * 2f) - 1f) * jitter;
+                    y += (((float)random.NextDouble() * 2f) - 1f) * jitter;
+                }
+
+                transformed.Add(new Point(x, y));
+            }
+
+            return transformed;
+        }
+
+        private static void Shuffle<T>(IList<T> list, int seed) {
+            Random random = new Random(seed);
+            for (int i = list.Count - 1; i > 0; i--) {
+                int swapIndex = random.Next(i + 1);
+                (list[i], list[swapIndex]) = (list[swapIndex], list[i]);
+            }
+        }
+
+        private static void AssertAffineClose(double[,] expected, double[,] actual, double matrixTol, double translationTol) {
+            Assert.That(actual[0, 0], Is.EqualTo(expected[0, 0]).Within(matrixTol));
+            Assert.That(actual[0, 1], Is.EqualTo(expected[0, 1]).Within(matrixTol));
+            Assert.That(actual[1, 0], Is.EqualTo(expected[1, 0]).Within(matrixTol));
+            Assert.That(actual[1, 1], Is.EqualTo(expected[1, 1]).Within(matrixTol));
+            Assert.That(actual[0, 2], Is.EqualTo(expected[0, 2]).Within(translationTol));
+            Assert.That(actual[1, 2], Is.EqualTo(expected[1, 2]).Within(translationTol));
+        }
+
+        private static double ComputeMedianResidual(IReadOnlyList<Point> referenceStars, IReadOnlyList<Point> sourceStars, double[,] matrix) {
+            var residuals = new double[referenceStars.Count];
+            for (int i = 0; i < referenceStars.Count; i++) {
+                double projectedX = (matrix[0, 0] * referenceStars[i].X) + (matrix[0, 1] * referenceStars[i].Y) + matrix[0, 2];
+                double projectedY = (matrix[1, 0] * referenceStars[i].X) + (matrix[1, 1] * referenceStars[i].Y) + matrix[1, 2];
+                double dx = projectedX - sourceStars[i].X;
+                double dy = projectedY - sourceStars[i].Y;
+                residuals[i] = Math.Sqrt((dx * dx) + (dy * dy));
+            }
+
+            return residuals.Median();
         }
 
         private static float[] SequentialStackReference(float[] image, float[] stack, int stackImageCount) {

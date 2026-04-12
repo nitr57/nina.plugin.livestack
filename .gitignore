@@ -103,3 +103,4 @@ Accord.dll.config
 /.dotnet-cli/.dotnet
 /tmp/smoke[brackets]{curly}.fits
 /tmp
+/BenchmarkDotNet.Artifacts/results
