@@ -1,8 +1,10 @@
-﻿# Livestack
+# Livestack
 
 ## 1.1.0.0
-- Saving FITS files is now using `fits_create_diskfile` instead of `fits_create_file` to allow for square or curly bracket characters in the file name
+- Saving and reading FITS files now use the CFITSIO diskfile APIs so square or curly bracket characters in file names work correctly
 - Image alignment now uses RANSAC to improve robustness against outliers
+- Improved star selection and triangle matching for more robust and faster alignment
+- Improved live stack performance with vectorized stack accumulation and faster affine image transforms
 - Improved Image calibration to utilize SIMD instructions for better performance and reduced memory usage
 
 ## 1.0.1.7
