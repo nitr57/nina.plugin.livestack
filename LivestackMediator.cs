@@ -1,4 +1,5 @@
-﻿using NINA.Plugin.Livestack.LivestackDockables;
+﻿using NINA.Plugin.Livestack.Image;
+using NINA.Plugin.Livestack.LivestackDockables;
 using NINA.Profile.Interfaces;
 using System;
 
@@ -24,6 +25,18 @@ namespace NINA.Plugin.Livestack {
 
         internal static void RegisterLivestackDockable(LivestackDockable livestackDockable) {
             LiveStackDockable = livestackDockable;
+        }
+
+        public static ICalibrationManager CreateCalibrationManager() {
+            return new CalibrationManagerSimd();
+        }
+
+        public static IImageTransformer GetImageTransformer() {
+            return ImageTransformer2.Instance;
+        }
+
+        public static IImageMath GetImageMath() {
+            return ImageMath.Instance;
         }
     }
 }

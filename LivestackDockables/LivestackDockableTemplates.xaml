@@ -300,7 +300,7 @@
                 <TabControl.ContentTemplate>
                     <DataTemplate>
                         <wpfbase:ImageView
-                            Image="{Binding StackImage, IsAsync=True}"
+                            Image="{Binding StackImage}"
                             ImageFlip="{Binding ImageFlipValue}"
                             ImageRotation="{Binding ImageRotation}"
                             ScrollEnabled="True">

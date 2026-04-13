@@ -124,7 +124,7 @@ namespace NINA.Plugin.Livestack.Instructions {
                                     }
 
                                     Logger.Info($"Stacking flat for filter {filter} using {fitsFiles.Count} frames");
-                                    var stack = ImageMath.PercentileClipping(fitsFiles, 0.2, 0.1);
+                                    var stack = LivestackMediator.GetImageMath().PercentileClipping(fitsFiles, 0.2, 0.1);
 
                                     var target = RetrieveTarget(this.Parent);
                                     var outputDir = Path.Combine(workingDir, "stacks");
@@ -233,7 +233,7 @@ namespace NINA.Plugin.Livestack.Instructions {
                 var progress = new Progress<ApplicationStatus>((p) => applicationStatusMediator.StatusUpdate(p));
                 var token = cts.Token;
 
-                using var calibrationManager = new CalibrationManager();
+                using var calibrationManager = LivestackMediator.CreateCalibrationManager();
 
                 while (await queue.OutputAvailableAsync(token)) {
                     try {

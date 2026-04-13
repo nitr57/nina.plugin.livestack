@@ -27,6 +27,7 @@ namespace NINA.Plugin.Livestack.Instructions {
     [Export(typeof(ISequenceItem))]
     [JsonObject(MemberSerialization.OptIn)]
     public partial class CameraSimulatorDirectory : SequenceItem {
+
         [ImportingConstructor]
         public CameraSimulatorDirectory(ICameraMediator cameraMediator) {
             this.cameraMediator = cameraMediator;
@@ -51,9 +52,7 @@ namespace NINA.Plugin.Livestack.Instructions {
         private readonly ICameraMediator cameraMediator;
 
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var decorator = cameraMediator.GetDevice() as PersistSettingsCameraDecorator;
-            if (decorator == null) { return; }
-            var camera = decorator.Camera as SimulatorCamera;
+            var camera = cameraMediator.GetDevice() as SimulatorCamera;
             if (camera == null) { return; }
 
             var t = camera.GetType();

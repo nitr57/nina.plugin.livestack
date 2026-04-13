@@ -1,4 +1,4 @@
-﻿using Accord;
+using Accord;
 using MathNet.Numerics.LinearAlgebra.Double;
 using NINA.Image.ImageAnalysis;
 using System;
@@ -8,9 +8,15 @@ using System.Threading.Tasks;
 
 namespace NINA.Plugin.Livestack.Image {
 
-    public class ImageTransformer {
+    public class ImageTransformer : IImageTransformer {
+        private static readonly Lazy<ImageTransformer> lazy = new Lazy<ImageTransformer>(() => new ImageTransformer());
 
-        public static List<Accord.Point> GetStars(List<DetectedStar> starList, int width, int height) {
+        public static ImageTransformer Instance => lazy.Value;
+
+        private ImageTransformer() {
+        }
+
+        public List<Accord.Point> GetStars(List<DetectedStar> starList, int width, int height) {
             const int maxStars = 100;
 
             // Filter stars by brightness
@@ -58,11 +64,11 @@ namespace NINA.Plugin.Livestack.Image {
             return selectedStars.Take(maxStars).ToList();
         }
 
-        private static double GetDistanceToCenter(Accord.Point position, double centerX, double centerY) {
+        private double GetDistanceToCenter(Accord.Point position, double centerX, double centerY) {
             return Math.Sqrt(Math.Pow(position.X - centerX, 2) + Math.Pow(position.Y - centerY, 2));
         }
 
-        public static double[,] ComputeAffineTransformation(List<Point> stars, List<Point> referenceStars) {
+        public double[,] ComputeAffineTransformation(List<Point> stars, List<Point> referenceStars) {
             var referenceTriangles = ComputeTriangleList(referenceStars);
             var targetTriangles = ComputeTriangleList(stars);
 
@@ -88,7 +94,7 @@ namespace NINA.Plugin.Livestack.Image {
             return matrix;
         }
 
-        public static float[] ApplyAffineTransformation(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+        public float[] ApplyAffineTransformation(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             // Create a new output array to hold the transformed image
             float[] transformedImageData = new float[width * height];
 
@@ -120,7 +126,7 @@ namespace NINA.Plugin.Livestack.Image {
             return transformedImageData;
         }
 
-        public static float[] ApplyAffineTransformation(ushort[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+        public float[] ApplyAffineTransformation(ushort[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             // Create a new output array to hold the transformed image
             float[] transformedImageData = new float[width * height];
 
@@ -152,7 +158,7 @@ namespace NINA.Plugin.Livestack.Image {
             return transformedImageData;
         }
 
-        public static ushort[] ApplyAffineTransformationAsUshort(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+        public ushort[] ApplyAffineTransformationAsUshort(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             // Create a new output array to hold the transformed image
             ushort[] transformedImageData = new ushort[width * height];
 
@@ -184,7 +190,7 @@ namespace NINA.Plugin.Livestack.Image {
             return transformedImageData;
         }
 
-        public static bool IsFlippedImage(double[,] affineMatrix) {
+        public bool IsFlippedImage(double[,] affineMatrix) {
             // Extract the top-left 2x2 part of the affine transformation matrix
             double a = affineMatrix[0, 0];
             double b = affineMatrix[0, 1];
@@ -203,7 +209,7 @@ namespace NINA.Plugin.Livestack.Image {
             return angleDeg >= 160 && angleDeg <= 200;
         }
 
-        private static double[,] ComputeAffineTransformationMatrix(double[,] sourcePoints, double[,] targetPoints) {
+        private double[,] ComputeAffineTransformationMatrix(double[,] sourcePoints, double[,] targetPoints) {
             int numPoints = sourcePoints.GetLength(0);
             if (numPoints < 3) {
                 throw new ArgumentException("At least 3 points are required for affine transformation.");
@@ -243,14 +249,14 @@ namespace NINA.Plugin.Livestack.Image {
             };
         }
 
-        private static Point ApplyAffineMatrix(int x, int y, double[,] matrix) {
+        private Point ApplyAffineMatrix(int x, int y, double[,] matrix) {
             double newX = matrix[0, 0] * x + matrix[0, 1] * y + matrix[0, 2];
             double newY = matrix[1, 0] * x + matrix[1, 1] * y + matrix[1, 2];
 
             return new Point((float)newX, (float)newY);
         }
 
-        private static float GetInterpolatedPixelValue(int x, int y, float[] imageData, int width, int height) {
+        private float GetInterpolatedPixelValue(int x, int y, float[] imageData, int width, int height) {
             if (x < 0 || y < 0 || x >= width || y >= height) {
                 return 0; // Out-of-bounds pixels return 0 (or any appropriate default value)
             }
@@ -281,7 +287,7 @@ namespace NINA.Plugin.Livestack.Image {
             return interpolatedValue;
         }
 
-        private static float GetInterpolatedPixelValue(int x, int y, ushort[] imageData, int width, int height) {
+        private float GetInterpolatedPixelValue(int x, int y, ushort[] imageData, int width, int height) {
             if (x < 0 || y < 0 || x >= width || y >= height) {
                 return 0; // Out-of-bounds pixels return 0 (or any appropriate default value)
             }
@@ -312,7 +318,7 @@ namespace NINA.Plugin.Livestack.Image {
             return interpolatedValue;
         }
 
-        private static List<Triangle> ComputeTriangleList(List<Point> starList) {
+        private List<Triangle> ComputeTriangleList(List<Point> starList) {
             double[,] distanceMatrix = new double[starList.Count + 1, starList.Count + 1];
             List<Triangle> triangles = new List<Triangle>();
 
@@ -364,7 +370,7 @@ namespace NINA.Plugin.Livestack.Image {
             return triangles;
         }
 
-        private static int[,] ComputeVotingMatrix(int starCount1, int starCount2, List<Triangle> triangles1, List<Triangle> triangles2, double maxTriangleDistance) {
+        private int[,] ComputeVotingMatrix(int starCount1, int starCount2, List<Triangle> triangles1, List<Triangle> triangles2, double maxTriangleDistance) {
             double distanceSquared = maxTriangleDistance * maxTriangleDistance;
             int[,] votingMatrix = new int[starCount1, starCount2];
 
@@ -414,7 +420,7 @@ namespace NINA.Plugin.Livestack.Image {
             return votingMatrix;
         }
 
-        private static List<Match> ComputeMatchList(ref int[,] votingMatrix, double voteThreshold) {
+        private List<Match> ComputeMatchList(ref int[,] votingMatrix, double voteThreshold) {
             List<Match> matchList = new List<Match>();
 
             int matrixSize = Math.Min(votingMatrix.GetLength(0), votingMatrix.GetLength(1));
@@ -448,11 +454,11 @@ namespace NINA.Plugin.Livestack.Image {
             return matchList;
         }
 
-        private static void SortMatchArray(ref List<Match> m) {
+        private void SortMatchArray(ref List<Match> m) {
             m = m.AsParallel().OrderByDescending(a => a.Votes).ToList();
         }
 
-        private static void SortTriangleArray(ref List<Triangle> t) {
+        private void SortTriangleArray(ref List<Triangle> t) {
             t = t.AsParallel().OrderBy(a => a.Side3).ToList();
         }
 

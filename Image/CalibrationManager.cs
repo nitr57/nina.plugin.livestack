@@ -14,34 +14,35 @@ using System.Text;
 
 namespace NINA.Plugin.Livestack.Image {
 
-    internal class CalibrationMaster : IDisposable {
+    public class CalibrationManager : ICalibrationManager {
 
-        public CalibrationMaster(CalibrationFrameMeta meta) {
-            this.Meta = meta;
-            this.dataCache = new float[meta.Height][];
-            imageReader = new CFitsioFITSReader(meta.Path);
-        }
+        internal class CalibrationMaster : IDisposable {
 
-        public CalibrationFrameMeta Meta { get; }
-
-        private CFitsioFITSReader imageReader;
-        private float[][] dataCache;
-
-        public float[] ReadPixelRow(int row) {
-            if (dataCache[row] == null) {
-                dataCache[row] = imageReader.ReadPixelRowAsFloat(row);
+            public CalibrationMaster(CalibrationFrameMeta meta) {
+                this.Meta = meta;
+                this.dataCache = new float[meta.Height][];
+                imageReader = new CFitsioFITSReader(meta.Path);
             }
-            return dataCache[row];
+
+            public CalibrationFrameMeta Meta { get; }
+
+            private CFitsioFITSReader imageReader;
+            private float[][] dataCache;
+
+            public float[] ReadPixelRow(int row) {
+                if (dataCache[row] == null) {
+                    dataCache[row] = imageReader.ReadPixelRowAsFloat(row);
+                }
+                return dataCache[row];
+            }
+
+            public void Dispose() {
+                try {
+                    imageReader.Dispose();
+                } catch { }
+            }
         }
 
-        public void Dispose() {
-            try {
-                imageReader.Dispose();
-            } catch { }
-        }
-    }
-
-    public class CalibrationManager : IDisposable {
         public IList<CalibrationFrameMeta> FlatLibrary { get; } = new List<CalibrationFrameMeta>();
         public IList<CalibrationFrameMeta> DarkLibrary { get; } = new List<CalibrationFrameMeta>();
         public IList<CalibrationFrameMeta> BiasLibrary { get; } = new List<CalibrationFrameMeta>();

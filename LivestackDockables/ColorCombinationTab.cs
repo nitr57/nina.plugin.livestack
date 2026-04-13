@@ -1,4 +1,4 @@
-﻿using NINA.Image.ImageAnalysis;
+using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Plugin.Livestack.Image;
 using NINA.Profile.Interfaces;
@@ -30,12 +30,13 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
     public partial class ColorCombinationTab : BaseVM, IStackTab {
 
-        public ColorCombinationTab(IProfileService profileService, LiveStackTab red, LiveStackTab green, LiveStackTab blue) : base(profileService) {
+        public ColorCombinationTab(IProfileService profileService, LiveStackTab red, LiveStackTab green, LiveStackTab blue, bool channelsAlreadyAligned = false) : base(profileService) {
             this.Target = red.Target;
             this.profileService = profileService;
             this.red = red;
             this.green = green;
             this.blue = blue;
+            this.channelsAlreadyAligned = channelsAlreadyAligned;
             redStretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
             greenStretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
             blueStretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
@@ -119,6 +120,9 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         private readonly LiveStackTab red;
         private readonly LiveStackTab green;
         private readonly LiveStackTab blue;
+        private readonly bool channelsAlreadyAligned;
+
+        public bool NeedsRefresh { get; private set; } = true;
 
         [RelayCommand]
         public async Task Refresh(CancellationToken token) {
@@ -130,45 +134,46 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                         StackCountGreen = green.StackCount;
                         StackCountBlue = blue.StackCount;
 
-                        var greenData = AlignTab(red, green);
-                        var blueData = AlignTab(red, blue);
+                        var greenData = channelsAlreadyAligned ? green.Stack : AlignTab(red, green);
+                        var blueData = channelsAlreadyAligned ? blue.Stack : AlignTab(red, blue);
 
-                        using var redBitmap = ImageMath.CreateGrayBitmap(red.Stack, red.Properties.Width, red.Properties.Height);
+                        using var redBitmap = LivestackMediator.GetImageMath().CreateGrayBitmap(red.Stack, red.Properties.Width, red.Properties.Height);
                         var filter = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(redBitmap.Median, redBitmap.MedianAbsoluteDeviation, red.Properties.BitDepth), RedStretchFactor, RedBlackClipping, PixelFormats.Gray16);
                         filter.ApplyInPlace(redBitmap.Bitmap);
                         token.ThrowIfCancellationRequested();
 
-                        using var blueBitmap = ImageMath.CreateGrayBitmap(blueData, blue.Properties.Width, blue.Properties.Height);
+                        using var blueBitmap = LivestackMediator.GetImageMath().CreateGrayBitmap(blueData, blue.Properties.Width, blue.Properties.Height);
                         var filterBlue = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(blueBitmap.Median, blueBitmap.MedianAbsoluteDeviation, blue.Properties.BitDepth), BlueStretchFactor, BlueBlackClipping, PixelFormats.Gray16);
                         filterBlue.ApplyInPlace(blueBitmap.Bitmap);
                         token.ThrowIfCancellationRequested();
 
-                        using var greenBitmap = ImageMath.CreateGrayBitmap(greenData, green.Properties.Width, green.Properties.Height);
+                        using var greenBitmap = LivestackMediator.GetImageMath().CreateGrayBitmap(greenData, green.Properties.Width, green.Properties.Height);
                         var filterGreen = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(greenBitmap.Median, greenBitmap.MedianAbsoluteDeviation, green.Properties.BitDepth), GreenStretchFactor, GreenBlackClipping, PixelFormats.Gray16);
                         filterGreen.ApplyInPlace(greenBitmap.Bitmap);
                         token.ThrowIfCancellationRequested();
 
                         BitmapSource source;
                         if (Downsample > 1) {
-                            using var downsampledRed = ImageMath.DownsampleGray16(redBitmap.Bitmap, Downsample);
-                            using var downsampledGreen = ImageMath.DownsampleGray16(greenBitmap.Bitmap, Downsample);
-                            using var downsampledBlue = ImageMath.DownsampleGray16(blueBitmap.Bitmap, Downsample);
+                            using var downsampledRed = LivestackMediator.GetImageMath().DownsampleGray16(redBitmap.Bitmap, Downsample);
+                            using var downsampledGreen = LivestackMediator.GetImageMath().DownsampleGray16(greenBitmap.Bitmap, Downsample);
+                            using var downsampledBlue = LivestackMediator.GetImageMath().DownsampleGray16(blueBitmap.Bitmap, Downsample);
 
-                            using var colorBitmap = ImageMath.MergeGray16ToRGB48(downsampledRed, downsampledGreen, downsampledBlue);
+                            using var colorBitmap = LivestackMediator.GetImageMath().MergeGray16ToRGB48(downsampledRed, downsampledGreen, downsampledBlue);
                             if (EnableGreenDeNoise) {
-                                ImageMath.ApplyGreenDeNoiseInPlace(colorBitmap, GreenDeNoiseAmount);
+                                LivestackMediator.GetImageMath().ApplyGreenDeNoiseInPlace(colorBitmap, GreenDeNoiseAmount);
                             }
                             source = ImageUtility.ConvertBitmap(colorBitmap, PixelFormats.Rgb48);
                         } else {
-                            using var colorBitmap = ImageMath.MergeGray16ToRGB48(redBitmap.Bitmap, greenBitmap.Bitmap, blueBitmap.Bitmap);
+                            using var colorBitmap = LivestackMediator.GetImageMath().MergeGray16ToRGB48(redBitmap.Bitmap, greenBitmap.Bitmap, blueBitmap.Bitmap);
                             if (EnableGreenDeNoise) {
-                                ImageMath.ApplyGreenDeNoiseInPlace(colorBitmap, GreenDeNoiseAmount);
+                                LivestackMediator.GetImageMath().ApplyGreenDeNoiseInPlace(colorBitmap, GreenDeNoiseAmount);
                             }
                             source = ImageUtility.ConvertBitmap(colorBitmap, PixelFormats.Rgb48);
                         }
 
                         source.Freeze();
                         StackImage = source;
+                        NeedsRefresh = false;
                     } finally {
                         Locked = false;
                         GC.Collect();
@@ -176,6 +181,10 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     }
                 }, token);
             } catch { }
+        }
+
+        public void MarkDirty() {
+            NeedsRefresh = true;
         }
 
         [RelayCommand]
@@ -203,14 +212,14 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         private float[] AlignTab(LiveStackTab reference, LiveStackTab target) {
             var stars = target.ReferenceStars;
-            var affineTransformationMatrix = ImageTransformer.ComputeAffineTransformation(stars, reference.ReferenceStars);
-            var flipped = ImageTransformer.IsFlippedImage(affineTransformationMatrix);
+            var affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, reference.ReferenceStars);
+            var flipped = LivestackMediator.GetImageTransformer().IsFlippedImage(affineTransformationMatrix);
             if (flipped) {
                 // The reference is flipped - most likely a meridian flip happend. Rotate starlist by 180° and recompute the affine transform for a tighter fit. The apply method will then account for the indexing switch
-                stars = ImageMath.Flip(stars, target.Properties.Width, target.Properties.Height);
-                affineTransformationMatrix = ImageTransformer.ComputeAffineTransformation(stars, reference.ReferenceStars);
+                stars = LivestackMediator.GetImageMath().Flip(stars, target.Properties.Width, target.Properties.Height);
+                affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, reference.ReferenceStars);
             }
-            return ImageTransformer.ApplyAffineTransformation(target.Stack, target.Properties.Width, target.Properties.Height, affineTransformationMatrix, flipped);
+            return LivestackMediator.GetImageTransformer().ApplyAffineTransformation(target.Stack, target.Properties.Width, target.Properties.Height, affineTransformationMatrix, flipped);
         }
 
         private string GetStackFilePath() {

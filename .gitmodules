@@ -1,0 +1,6 @@
+[submodule "nina.plugin.livestack.benchmark/External"]
+	path = nina.plugin.livestack.benchmark/External
+	url = https://github.com/isbeorn/nina.external.git
+[submodule "nina.plugin.livestack.test/External"]
+	path = nina.plugin.livestack.test/External
+	url = https://github.com/isbeorn/nina.external.git

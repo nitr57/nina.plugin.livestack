@@ -1,12 +1,18 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
+using NINA.Core.Utility.WindowService;
+using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
+using NINA.Image.ImageAnalysis;
+using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
-using NINA.Plugin.Livestack.QualityGate;
+using NINA.Plugin.Interfaces;
 using NINA.Plugin.Livestack.Image;
+using NINA.Plugin.Livestack.QualityGate;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.ViewModel;
@@ -14,23 +20,18 @@ using Nito.AsyncEx;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.ComponentModel.Composition;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows;
-using NINA.Core.Utility.WindowService;
-using NINA.Image.ImageAnalysis;
-using System.Windows.Media.Imaging;
 using System.Windows.Media;
-using System.IO;
-using System.Drawing.Imaging;
-using NINA.Image.ImageData;
-using NINA.Core.Enum;
-using NINA.Equipment.Interfaces.Mediator;
-using NINA.Plugin.Interfaces;
-using System.ComponentModel;
+using System.Windows.Media.Imaging;
 
 namespace NINA.Plugin.Livestack.LivestackDockables {
 
@@ -94,10 +95,10 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         [ObservableProperty]
         private IStackTab selectedTab;
 
-        [ObservableProperty]
         private int queueEntries;
+        public int QueueEntries { get => queueEntries; }
 
-        private AsyncProducerConsumerQueue<LiveStackItem> queue;
+        private Channel<LiveStackItem> channel;
         private readonly IApplicationStatusMediator applicationStatusMediator;
         private readonly IImageSaveMediator imageSaveMediator;
         private readonly IImageDataFactory imageDataFactory;
@@ -111,53 +112,50 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             return Task.Run(async () => {
                 try {
                     IsExpanded = false;
-                    QueueEntries = 0;
-                    queue = new AsyncProducerConsumerQueue<LiveStackItem>(1000);
-                    var localQueue = queue;
+                    ResetQueueEntries();
+                    channel = Channel.CreateBounded<LiveStackItem>(1000);
+                    var localQueue = channel;
                     this.imageSaveMediator.BeforeFinalizeImageSaved += ImageSaveMediator_BeforeFinalizeImageSaved;
                     this.stackSessionId = Guid.NewGuid();
                     _ = messageBroker.Publish(new LiveStackStatusBroadcast(LiveStackStatus.Running, this.stackSessionId.Value));
+                    applicationStatusMediator.StatusUpdate(new ApplicationStatus() { Source = "Live Stack", Status = "Waiting for first frame" });
 
-                    while (!token.IsCancellationRequested) {
-                        try {
-                            applicationStatusMediator.StatusUpdate(new ApplicationStatus() { Source = "Live Stack", Status = "Waiting for next frame" });
-
-                            var available = await localQueue.OutputAvailableAsync(token);
-                            if (!available) { return; }
-                            var item = await localQueue.DequeueAsync(token);
-
-                            Interlocked.Decrement(ref queueEntries);
-                            RaisePropertyChanged(nameof(QueueEntries));
-
+                    try {
+                        await foreach (var item in channel.Reader.ReadAllAsync(token)) {
                             try {
-                                if (item.StarList.Count < 8) {
-                                    Logger.Info($"Skipping frame as not enough stars have been detected ({item.StarList.Count})");
-                                    continue;
-                                }
-
                                 StatusUpdate("Received new frame", item);
-                                if (!ItemPassesQuality(item)) {
-                                    continue;
+                                DecrementQueueEntries();
+
+                                try {
+                                    if (item.StarList.Count < 8) {
+                                        Logger.Info($"Skipping frame as not enough stars have been detected ({item.StarList.Count})");
+                                        continue;
+                                    }
+
+                                    if (!ItemPassesQuality(item)) {
+                                        continue;
+                                    }
+
+                                    await StackItem(item, token);
+                                } finally {
+                                    File.Delete(item.Path);
                                 }
 
-                                await StackItem(item, token);
+                                GC.Collect();
+                                GC.WaitForPendingFinalizers();
+                            } catch (OperationCanceledException) {
+                            } catch (Exception ex) {
+                                Logger.Error(ex);
                             } finally {
-                                File.Delete(item.Path);
+                                applicationStatusMediator.StatusUpdate(new ApplicationStatus() { Source = "Live Stack", Status = "Waiting for next frame" });
                             }
-
-                            GC.Collect();
-                            GC.WaitForPendingFinalizers();
-                        } catch (OperationCanceledException) {
-                        } catch (Exception ex) {
-                            Logger.Error(ex);
                         }
-                    }
+                    } catch (OperationCanceledException) { }
 
                     if (localQueue != null) {
                         try {
-                            localQueue.CompleteAdding();
-                            while (true) {
-                                var item = await localQueue.DequeueAsync(token);
+                            localQueue.Writer.TryComplete();
+                            await foreach (var item in channel.Reader.ReadAllAsync()) {
                                 StatusUpdate("Flushing queue", item);
                                 File.Delete(item.Path);
                             }
@@ -169,7 +167,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     _ = messageBroker.Publish(new LiveStackStatusBroadcast(LiveStackStatus.Stopped, this.stackSessionId.Value));
                     this.stackSessionId = null;
                     IsExpanded = true;
-                    QueueEntries = 0;
+                    ResetQueueEntries();
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
                 }
@@ -239,13 +237,21 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             LivestackMediator.PluginSettings.SetValueString(nameof(QualityGates), QualityGates.FromListToString());
         }
 
+        partial void OnSelectedTabChanged(IStackTab value) {
+            if (value == null) {
+                return;
+            }
+
+            _ = RefreshSelectedTabAsync(value);
+        }
+
         private async Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
             if (e.Image.RawImageData.MetaData.Image.ImageType == NINA.Equipment.Model.CaptureSequence.ImageTypes.LIGHT || e.Image.RawImageData.MetaData.Image.ImageType == NINA.Equipment.Model.CaptureSequence.ImageTypes.SNAPSHOT) {
                 _ = Task.Run(async () => {
                     try {
                         var statistics = await e.Image.RawImageData.Statistics;
                         var starDetectionAnalysis = e.Image.RawImageData.StarDetectionAnalysis;
-                        if (starDetectionAnalysis is null || starDetectionAnalysis.DetectedStars <= 0) {
+                        if (NeedsStarDetection(starDetectionAnalysis)) {
                             var render = e.Image.RawImageData.RenderImage();
                             render = await render.Stretch(profileService.ActiveProfile.ImageSettings.AutoStretchFactor, profileService.ActiveProfile.ImageSettings.BlackClipping, profileService.ActiveProfile.ImageSettings.UnlinkedStretch);
                             render = await render.DetectStars(false, profileService.ActiveProfile.ImageSettings.StarSensitivity, profileService.ActiveProfile.ImageSettings.NoiseReduction, default, default);
@@ -263,7 +269,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                             },
                             default, true, e.Patterns
                         );
-                        await queue.EnqueueAsync(new LiveStackItem(path: path,
+                        await channel.Writer.WriteAsync(new LiveStackItem(path: path,
                                                                    target: e.Image.RawImageData.MetaData.Target.Name,
                                                                    filter: e.Image.RawImageData.MetaData.FilterWheel.Filter,
                                                                    exposureTime: e.Image.RawImageData.MetaData.Image.ExposureTime,
@@ -275,12 +281,65 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                                                                    isBayered: e.Image.RawImageData.Properties.IsBayered,
                                                                    analysis: starDetectionAnalysis,
                                                                    metaData: e.Image.RawImageData.MetaData));
-                        Interlocked.Increment(ref queueEntries);
-                        RaisePropertyChanged(nameof(QueueEntries));
+
+                        IncrementQueueEntries();
                     } catch (Exception ex) {
                         Logger.Error(ex);
                     }
                 });
+            }
+        }
+
+        private void ResetQueueEntries() {
+            Interlocked.Exchange(ref queueEntries, 0);
+            NotifyQueueEntriesChanged();
+        }
+
+        private void IncrementQueueEntries() {
+            Interlocked.Increment(ref queueEntries);
+            NotifyQueueEntriesChanged();
+        }
+
+        private void DecrementQueueEntries() {
+            int updated = Interlocked.Decrement(ref queueEntries);
+            if (updated < 0) {
+                Interlocked.Exchange(ref queueEntries, 0);
+            }
+            NotifyQueueEntriesChanged();
+        }
+
+        private void NotifyQueueEntriesChanged() {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess() && !dispatcher.HasShutdownStarted) {
+                _ = dispatcher.BeginInvoke(new Action(() => RaisePropertyChanged(nameof(QueueEntries))));
+                return;
+            }
+
+            RaisePropertyChanged(nameof(QueueEntries));
+        }
+
+        private static bool NeedsStarDetection(IStarDetectionAnalysis analysis) {
+            return analysis is null || analysis.DetectedStars <= 0;
+        }
+
+        private async Task RefreshSelectedTabAsync(IStackTab tab) {
+            try {
+                while (ReferenceEquals(SelectedTab, tab) && tab.Locked) {
+                    await Task.Delay(25);
+                }
+
+                if (!ReferenceEquals(SelectedTab, tab)) {
+                    return;
+                }
+
+                if (tab is ColorCombinationTab colorTab) {
+                    if (colorTab.NeedsRefresh || colorTab.StackImage == null) {
+                        await colorTab.Refresh(CancellationToken.None);
+                    }
+                } else if (tab is LiveStackTab liveTab && liveTab.StackImage == null) {
+                    await liveTab.Refresh(CancellationToken.None);
+                }
+            } catch {
             }
         }
 
@@ -302,7 +361,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
             var tab = Tabs.FirstOrDefault(x => x is LiveStackTab && x.Filter == filter && x.Target == target);
             if (tab == null) {
-                var stars = ImageTransformer.GetStars(item.StarList, item.Width, item.Height);
+                var stars = LivestackMediator.GetImageTransformer().GetStars(item.StarList, item.Width, item.Height);
                 if (item.IsBayered) { stars = null; }
                 var bag = new LiveStackBag(target, filter, new ImageProperties(item.Width, item.Height, (int)profileService.ActiveProfile.CameraSettings.BitDepth, item.IsBayered, item.Gain, item.Offset), item.MetaData, stars);
                 tab = new LiveStackTab(profileService, bag);
@@ -318,15 +377,15 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 transformedImage = theImageArray;
             } else {
                 StatusUpdate("Aligning frame", item);
-                var stars = ImageTransformer.GetStars(item.StarList, item.Width, item.Height);
-                var affineTransformationMatrix = ImageTransformer.ComputeAffineTransformation(stars, tab.ReferenceStars);
-                var flipped = ImageTransformer.IsFlippedImage(affineTransformationMatrix);
+                var stars = LivestackMediator.GetImageTransformer().GetStars(item.StarList, item.Width, item.Height);
+                var affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, tab.ReferenceStars);
+                var flipped = LivestackMediator.GetImageTransformer().IsFlippedImage(affineTransformationMatrix);
                 if (flipped) {
                     // The reference is flipped - most likely a meridian flip happend. Rotate starlist by 180° and recompute the affine transform for a tighter fit. The apply method will then account for the indexing switch
-                    stars = ImageMath.Flip(stars, item.Width, item.Height);
-                    affineTransformationMatrix = ImageTransformer.ComputeAffineTransformation(stars, tab.ReferenceStars);
+                    stars = LivestackMediator.GetImageMath().Flip(stars, item.Width, item.Height);
+                    affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, tab.ReferenceStars);
                 }
-                transformedImage = ImageTransformer.ApplyAffineTransformation(theImageArray, item.Width, item.Height, affineTransformationMatrix, flipped);
+                transformedImage = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(theImageArray, item.Width, item.Height, affineTransformationMatrix, flipped);
 
                 StatusUpdate("Updating stack", item);
             }
@@ -364,14 +423,14 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             // We only need to detect the stars in one channel for OSC. The others should match.
             var channelStatistics = await redChannelData.Statistics;
             var channelRender = redChannelData.RenderImage();
-            if (redChannelData.StarDetectionAnalysis is null || redChannelData.StarDetectionAnalysis.DetectedStars < 0) {
+            if (NeedsStarDetection(redChannelData.StarDetectionAnalysis)) {
                 var render = channelRender.RawImageData.RenderImage();
                 render = await render.Stretch(profileService.ActiveProfile.ImageSettings.AutoStretchFactor, profileService.ActiveProfile.ImageSettings.BlackClipping, profileService.ActiveProfile.ImageSettings.UnlinkedStretch);
                 render = await render.DetectStars(false, profileService.ActiveProfile.ImageSettings.StarSensitivity, profileService.ActiveProfile.ImageSettings.NoiseReduction, token, default);
                 redChannelData.StarDetectionAnalysis = render.RawImageData.StarDetectionAnalysis;
             }
 
-            var stars = ImageTransformer.GetStars(redChannelData.StarDetectionAnalysis.StarList, item.Width, item.Height);
+            var stars = LivestackMediator.GetImageTransformer().GetStars(redChannelData.StarDetectionAnalysis.StarList, item.Width, item.Height);
 
             double[,] affineTransformationMatrix = null;
             bool flipped = false;
@@ -380,14 +439,14 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 redTab.ForcePushReference(new ImageProperties(item.Width, item.Height, (int)profileService.ActiveProfile.CameraSettings.BitDepth, item.IsBayered, item.Gain, item.Offset), stars, redChannelData.Data.FlatArray.ToFloatArray());
             } else {
                 // We only need to compute the transformation in one channel. The others should match.
-                affineTransformationMatrix = ImageTransformer.ComputeAffineTransformation(stars, redTab.ReferenceStars);
-                flipped = ImageTransformer.IsFlippedImage(affineTransformationMatrix);
+                affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, redTab.ReferenceStars);
+                flipped = LivestackMediator.GetImageTransformer().IsFlippedImage(affineTransformationMatrix);
                 if (flipped) {
                     // The reference is flipped - most likely a meridian flip happend. Rotate starlist by 180° and recompute the affine transform for a tighter fit. The apply method will then account for the indexing switch
-                    stars = ImageMath.Flip(stars, item.Width, item.Height);
-                    affineTransformationMatrix = ImageTransformer.ComputeAffineTransformation(stars, redTab.ReferenceStars);
+                    stars = LivestackMediator.GetImageMath().Flip(stars, item.Width, item.Height);
+                    affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, redTab.ReferenceStars);
                 }
-                var redAligned = ImageTransformer.ApplyAffineTransformation(debayeredImage.Data.Red, item.Width, item.Height, affineTransformationMatrix, flipped);
+                var redAligned = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(debayeredImage.Data.Red, item.Width, item.Height, affineTransformationMatrix, flipped);
                 redTab.AddImage(redAligned);
             }
 
@@ -399,7 +458,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 greenTab = new LiveStackTab(profileService, bag);
                 Tabs.Add(greenTab);
             } else {
-                var greenAligned = ImageTransformer.ApplyAffineTransformation(debayeredImage.Data.Green, item.Width, item.Height, affineTransformationMatrix, flipped);
+                var greenAligned = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(debayeredImage.Data.Green, item.Width, item.Height, affineTransformationMatrix, flipped);
                 greenTab.AddImage(greenAligned);
             }
 
@@ -411,7 +470,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 blueTab = new LiveStackTab(profileService, bag);
                 Tabs.Add(blueTab);
             } else {
-                var blueAligned = ImageTransformer.ApplyAffineTransformation(debayeredImage.Data.Blue, item.Width, item.Height, affineTransformationMatrix, flipped);
+                var blueAligned = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(debayeredImage.Data.Blue, item.Width, item.Height, affineTransformationMatrix, flipped);
                 blueTab.AddImage(blueAligned);
             }
 
@@ -421,7 +480,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
             var colorTab = Tabs.Where(x => x is ColorCombinationTab && x.Target == item.Target).FirstOrDefault() as ColorCombinationTab;
             if (colorTab == null) {
-                colorTab = new ColorCombinationTab(profileService, redTab, greenTab, blueTab);
+                colorTab = new ColorCombinationTab(profileService, redTab, greenTab, blueTab, channelsAlreadyAligned: true);
                 Tabs.Add(colorTab);
             }
             if (LivestackMediator.Plugin.SaveStackedLights) {
@@ -459,24 +518,33 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
                 var colorTab = Tabs.Where(x => x is ColorCombinationTab && x.Target == tab.Target).FirstOrDefault() as ColorCombinationTab;
                 if (colorTab != null) {
-                    StatusUpdate("Refreshing color combined stack", item);
-                    await colorTab.Refresh(token);
+                    colorTab.MarkDirty();
+                    if (ShouldRefreshColorTab(colorTab)) {
+                        StatusUpdate("Refreshing color combined stack", item);
+                        await colorTab.Refresh(token);
 
-                    if (LivestackMediator.Plugin.SaveStackedLights) {
-                        StatusUpdate("Saving color combined stack", item);
-                        colorTab.AutoSaveToDisk();
+                        if (LivestackMediator.Plugin.SaveStackedLights) {
+                            StatusUpdate("Saving color combined stack", item);
+                            colorTab.AutoSaveToDisk();
+                        }
+
+                        _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Color(colorTab.StackCountRed, colorTab.StackCountGreen, colorTab.StackCountBlue, colorTab.Filter, colorTab.Target, colorTab.StackImage), correlation));
                     }
-
-                    _ = messageBroker.Publish(new LivestackBroadcast(LiveStackBroadcastContent.Color(colorTab.StackCountRed, colorTab.StackCountGreen, colorTab.StackCountBlue, colorTab.Filter, colorTab.Target, colorTab.StackImage), correlation));
                 }
             } finally {
                 tab.Locked = false;
             }
         }
 
+        private bool ShouldRefreshColorTab(ColorCombinationTab colorTab) {
+            return ReferenceEquals(SelectedTab, colorTab)
+                || colorTab.StackImage == null
+                || LivestackMediator.Plugin.SaveStackedLights;
+        }
+
         private float[] CalibrateFrame(LiveStackItem item) {
             StatusUpdate("Calibrating frame", item);
-            using var calibrationManager = new CalibrationManager();
+            using var calibrationManager = LivestackMediator.CreateCalibrationManager();
             RegisterCalibrationMasters(calibrationManager);
             float[] theImageArray;
             using (CFitsioFITSReader reader = new CFitsioFITSReader(item.Path)) {
@@ -505,7 +573,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         private void RemoveHotpixelsIfNeeded(float[] theImageArray, LiveStackItem item) {
             if (LivestackMediator.Plugin.HotpixelRemoval) {
                 StatusUpdate("Removing hot pixels in frame", item);
-                ImageMath.RemoveHotPixelOutliers(theImageArray, item.Width, item.Height);
+                LivestackMediator.GetImageMath().RemoveHotPixelOutliers(theImageArray, item.Width, item.Height);
             }
         }
 
@@ -516,7 +584,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             applicationStatusMediator.StatusUpdate(new ApplicationStatus() { Source = "Live Stack", Status = status });
         }
 
-        private void RegisterCalibrationMasters(CalibrationManager calibrationManager) {
+        private void RegisterCalibrationMasters(ICalibrationManager calibrationManager) {
             foreach (var meta in LivestackMediator.CalibrationVM.BiasLibrary) {
                 calibrationManager.RegisterBiasMaster(meta);
             }
@@ -620,6 +688,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         // Only used for color
         public int? RedStackCount { get; }
+
         public int? GreenStackCount { get; }
         public int? BlueStackCount { get; }
 
@@ -657,8 +726,10 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
     }
 
     public enum LiveStackStatus {
+
         [Description("running")]
         Running,
+
         [Description("stopped")]
         Stopped
     }

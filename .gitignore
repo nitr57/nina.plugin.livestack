@@ -100,3 +100,7 @@ orleans.codegen.cs
 /NINA/Resources/StaticResources/ArrowLeft.xaml
 Accord.dll.config
 *.zip
+/.dotnet-cli/.dotnet
+/tmp/smoke[brackets]{curly}.fits
+/tmp
+/BenchmarkDotNet.Artifacts/results
