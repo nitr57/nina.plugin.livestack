@@ -441,7 +441,7 @@ namespace NINA.Plugin.Livestack {
 
             destination = destination.Slice(0, Width);
 
-            int* firstpix = stackalloc int[2];
+            long* firstpix = stackalloc long[2];
             firstpix[0] = 1;
             firstpix[1] = row + 1;
 
