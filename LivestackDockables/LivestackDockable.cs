@@ -67,6 +67,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
             messageBroker.Subscribe("Livestack_LivestackDockable_StartLiveStack", this);
             messageBroker.Subscribe("Livestack_LivestackDockable_StopLiveStack", this);
+            messageBroker.Subscribe("Livestack_LivestackDockable_ResetLiveStack", this);
         }
 
         private void ActiveProfile_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -612,6 +613,13 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 if (LivestackMediator.LiveStackDockable.StartLiveStackCommand.IsRunning) {
                     await Application.Current.Dispatcher.BeginInvoke(() => LivestackMediator.LiveStackDockable.StartLiveStackCancelCommand.Execute(null));
                 }
+            } else if (message.Topic == $"Livestack_LivestackDockable_ResetLiveStack") {
+                await Application.Current.Dispatcher.BeginInvoke(async () => {
+                    var tabsCopy = Tabs.ToList();
+                    foreach (var tab in tabsCopy) {
+                        await RemoveTabCommand.ExecuteAsync(tab);
+                    }
+                });
             }
         }
     }
