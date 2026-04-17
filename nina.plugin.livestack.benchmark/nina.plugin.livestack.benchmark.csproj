@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64</Platforms>
+    <NoWarn>$(NoWarn);NU1701;NU1900</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -138,11 +138,13 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
                                     await StackItem(item, token);
                                 } finally {
-                                    File.Delete(item.Path);
+                                    try {
+                                        File.Delete(item.Path);
+                                    } finally {
+                                        LiveStackMemoryPressure.CollectIfNeeded("frame completed");
+                                    }
                                 }
 
-                                GC.Collect();
-                                GC.WaitForPendingFinalizers();
                             } catch (OperationCanceledException) {
                             } catch (Exception ex) {
                                 Logger.Error(ex);
@@ -168,8 +170,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     this.stackSessionId = null;
                     IsExpanded = true;
                     ResetQueueEntries();
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
+                    LiveStackMemoryPressure.CompactAfterReleasingLargeBuffers("live stack stopped");
                 }
             });
         }
@@ -191,9 +192,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             } else {
                 Tabs.Remove(tab);
             }
-
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            await Task.Run(() => LiveStackMemoryPressure.CompactAfterReleasingLargeBuffers("stack tab removed"));
         }
 
         [RelayCommand]
@@ -372,9 +371,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         }
 
         private async Task StackMono(float[] theImageArray, LiveStackItem item, LiveStackTab tab, Guid correlation, CancellationToken token) {
-            float[] transformedImage;
             if (tab.StackCount == 0) {
-                transformedImage = theImageArray;
+                tab.AddImage(theImageArray);
             } else {
                 StatusUpdate("Aligning frame", item);
                 var stars = LivestackMediator.GetImageTransformer().GetStars(item.StarList, item.Width, item.Height);
@@ -385,12 +383,10 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     stars = LivestackMediator.GetImageMath().Flip(stars, item.Width, item.Height);
                     affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, tab.ReferenceStars);
                 }
-                transformedImage = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(theImageArray, item.Width, item.Height, affineTransformationMatrix, flipped);
+                tab.AddTransformedImage(theImageArray, affineTransformationMatrix, flipped);
 
                 StatusUpdate("Updating stack", item);
             }
-
-            tab.AddImage(transformedImage);
 
             StatusUpdate("Rendering stack", item);
             await tab.Refresh(token);
@@ -446,8 +442,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     stars = LivestackMediator.GetImageMath().Flip(stars, item.Width, item.Height);
                     affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, redTab.ReferenceStars);
                 }
-                var redAligned = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(debayeredImage.Data.Red, item.Width, item.Height, affineTransformationMatrix, flipped);
-                redTab.AddImage(redAligned);
+                redTab.AddTransformedImage(debayeredImage.Data.Red, affineTransformationMatrix, flipped);
             }
 
             StatusUpdate("Aligning frame - green channel", item);
@@ -458,8 +453,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 greenTab = new LiveStackTab(profileService, bag);
                 Tabs.Add(greenTab);
             } else {
-                var greenAligned = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(debayeredImage.Data.Green, item.Width, item.Height, affineTransformationMatrix, flipped);
-                greenTab.AddImage(greenAligned);
+                greenTab.AddTransformedImage(debayeredImage.Data.Green, affineTransformationMatrix, flipped);
             }
 
             StatusUpdate("Aligning frame - blue channel", item);
@@ -470,8 +464,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 blueTab = new LiveStackTab(profileService, bag);
                 Tabs.Add(blueTab);
             } else {
-                var blueAligned = LivestackMediator.GetImageTransformer().ApplyAffineTransformation(debayeredImage.Data.Blue, item.Width, item.Height, affineTransformationMatrix, flipped);
-                blueTab.AddImage(blueAligned);
+                blueTab.AddTransformedImage(debayeredImage.Data.Blue, affineTransformationMatrix, flipped);
             }
 
             await redTab.Refresh(token);

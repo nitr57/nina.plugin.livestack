@@ -176,8 +176,6 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                         NeedsRefresh = false;
                     } finally {
                         Locked = false;
-                        GC.Collect();
-                        GC.WaitForPendingFinalizers();
                     }
                 }, token);
             } catch { }

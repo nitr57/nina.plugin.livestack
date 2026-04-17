@@ -438,6 +438,19 @@ namespace nina.plugin.livestack.test {
                     float[] expected = ApplyAffineTransformationReference(source, width, height, matrix, flipped);
                     float[] actual = transformer.ApplyAffineTransformation(source, width, height, matrix, flipped);
                     FloatAssert.AreEqual(expected, actual, absTol: 0f, relTol: 0f);
+
+                    float[] destination = Enumerable.Repeat(1f, width * height).ToArray();
+                    transformer.ApplyAffineTransformationInto(source, destination, width, height, matrix, flipped);
+                    FloatAssert.AreEqual(expected, destination, absTol: 0f, relTol: 0f);
+
+                    float[] originalStack = Enumerable.Range(0, width * height)
+                        .Select(i => ((i * 97) % 997) / 996f)
+                        .ToArray();
+                    float[] stack = (float[])originalStack.Clone();
+                    transformer.ApplyAffineTransformationAndStack(source, stack, stackImageCount: 5, width, height, matrix, flipped);
+
+                    float[] expectedStack = SequentialStackReference(expected, originalStack, stackImageCount: 5);
+                    FloatAssert.AreEqual(expectedStack, stack, absTol: 1e-6f, relTol: 1e-6f);
                 }
             }
         }
@@ -459,9 +472,26 @@ namespace nina.plugin.livestack.test {
                     float[] actualFloat = transformer.ApplyAffineTransformation(ushortSource, width, height, matrix, flipped);
                     FloatAssert.AreEqual(expectedFloat, actualFloat, absTol: 0f, relTol: 0f);
 
+                    float[] destinationFloat = Enumerable.Repeat(1f, width * height).ToArray();
+                    transformer.ApplyAffineTransformationInto(ushortSource, destinationFloat, width, height, matrix, flipped);
+                    FloatAssert.AreEqual(expectedFloat, destinationFloat, absTol: 0f, relTol: 0f);
+
+                    float[] originalStack = Enumerable.Range(0, width * height)
+                        .Select(i => ((i * 83) % 991) / 990f)
+                        .ToArray();
+                    float[] stack = (float[])originalStack.Clone();
+                    transformer.ApplyAffineTransformationAndStack(ushortSource, stack, stackImageCount: 3, width, height, matrix, flipped);
+
+                    float[] expectedStack = SequentialStackReference(expectedFloat, originalStack, stackImageCount: 3);
+                    FloatAssert.AreEqual(expectedStack, stack, absTol: 1e-6f, relTol: 1e-6f);
+
                     ushort[] expectedUshort = ApplyAffineTransformationAsUShortReference(floatSource, width, height, matrix, flipped);
                     ushort[] actualUshort = transformer.ApplyAffineTransformationAsUshort(floatSource, width, height, matrix, flipped);
                     Assert.That(actualUshort, Is.EqualTo(expectedUshort));
+
+                    ushort[] destinationUshort = Enumerable.Repeat((ushort)123, width * height).ToArray();
+                    transformer.ApplyAffineTransformationAsUshortInto(floatSource, destinationUshort, width, height, matrix, flipped);
+                    Assert.That(destinationUshort, Is.EqualTo(expectedUshort));
                 }
             }
         }

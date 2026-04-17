@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using MathNet.Numerics.Statistics;
 using Newtonsoft.Json;
 using NINA.Core.Model;
@@ -158,8 +158,6 @@ namespace NINA.Plugin.Livestack.Instructions {
                     }
                 } finally {
                 }
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
             });
 
             if (WaitForStack) {
@@ -286,8 +284,6 @@ namespace NINA.Plugin.Livestack.Instructions {
                     RaisePropertyChanged(nameof(QueueEntries));
                 }
             } catch (OperationCanceledException) { }
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
         }
     }
 }

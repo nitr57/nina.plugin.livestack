@@ -1676,6 +1676,26 @@ namespace NINA.Plugin.Livestack.Image {
         /// <returns>Transformed normalized floating-point image data.</returns>
         public float[] ApplyAffineTransformation(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             float[] transformedImageData = new float[width * height];
+            ApplyAffineTransformationInto(sourceImageData, transformedImageData, width, height, affineMatrix, flippedImage);
+            return transformedImageData;
+        }
+
+        /// <summary>
+        /// Applies an affine transform to normalized floating-point image data into a caller-owned destination buffer.
+        /// </summary>
+        /// <param name="sourceImageData">Source image pixels in row-major order.</param>
+        /// <param name="destinationImageData">Destination buffer that receives transformed normalized pixels.</param>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="affineMatrix">Affine matrix used to sample the source image.</param>
+        /// <param name="flippedImage">Whether to mirror sample coordinates for a flipped frame.</param>
+        public void ApplyAffineTransformationInto(float[] sourceImageData, float[] destinationImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            ValidateAffineBuffers(sourceImageData, destinationImageData, width, height);
+            if (ReferenceEquals(sourceImageData, destinationImageData)) {
+                throw new ArgumentException("Source and destination buffers must not be the same instance.", nameof(destinationImageData));
+            }
+
+            Array.Clear(destinationImageData, 0, destinationImageData.Length);
             var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
 
             ProcessAffineRows(width, height, y => {
@@ -1692,14 +1712,32 @@ namespace NINA.Plugin.Livestack.Image {
                     }
 
                     if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
-                        transformedImageData[rowOffset + x] = sourceImageData[newY * width + newX];
+                        destinationImageData[rowOffset + x] = sourceImageData[newY * width + newX];
                     }
 
                     srcX += a;
                     srcY += c;
                 }
             });
-            return transformedImageData;
+        }
+
+        /// <summary>
+        /// Applies an affine transform and folds the sampled image directly into an existing average stack.
+        /// </summary>
+        /// <param name="sourceImageData">Source image pixels in row-major order.</param>
+        /// <param name="stackImageData">Existing normalized stack buffer that is updated in place.</param>
+        /// <param name="stackImageCount">Number of images currently represented by <paramref name="stackImageData"/>.</param>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="affineMatrix">Affine matrix used to sample the source image.</param>
+        /// <param name="flippedImage">Whether to mirror sample coordinates for a flipped frame.</param>
+        public void ApplyAffineTransformationAndStack(float[] sourceImageData, float[] stackImageData, int stackImageCount, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            ValidateAffineBuffers(sourceImageData, stackImageData, width, height);
+            if (ReferenceEquals(sourceImageData, stackImageData)) {
+                throw new ArgumentException("Source and stack buffers must not be the same instance.", nameof(stackImageData));
+            }
+
+            ApplyAffineTransformationAndStackCore(sourceImageData, stackImageData, stackImageCount, width, height, affineMatrix, flippedImage);
         }
 
         /// <summary>
@@ -1713,6 +1751,22 @@ namespace NINA.Plugin.Livestack.Image {
         /// <returns>Transformed normalized floating-point image data.</returns>
         public float[] ApplyAffineTransformation(ushort[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             float[] transformedImageData = new float[width * height];
+            ApplyAffineTransformationInto(sourceImageData, transformedImageData, width, height, affineMatrix, flippedImage);
+            return transformedImageData;
+        }
+
+        /// <summary>
+        /// Applies an affine transform to unsigned 16-bit image data and writes normalized pixels into a caller-owned buffer.
+        /// </summary>
+        /// <param name="sourceImageData">Source image pixels in row-major order.</param>
+        /// <param name="destinationImageData">Destination buffer that receives transformed normalized pixels.</param>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="affineMatrix">Affine matrix used to sample the source image.</param>
+        /// <param name="flippedImage">Whether to mirror sample coordinates for a flipped frame.</param>
+        public void ApplyAffineTransformationInto(ushort[] sourceImageData, float[] destinationImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            ValidateAffineBuffers(sourceImageData, destinationImageData, width, height);
+            Array.Clear(destinationImageData, 0, destinationImageData.Length);
             var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
 
             ProcessAffineRows(width, height, y => {
@@ -1729,14 +1783,28 @@ namespace NINA.Plugin.Livestack.Image {
                     }
 
                     if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
-                        transformedImageData[rowOffset + x] = sourceImageData[newY * width + newX] / (float)ushort.MaxValue;
+                        destinationImageData[rowOffset + x] = sourceImageData[newY * width + newX] / (float)ushort.MaxValue;
                     }
 
                     srcX += a;
                     srcY += c;
                 }
             });
-            return transformedImageData;
+        }
+
+        /// <summary>
+        /// Applies an affine transform to unsigned 16-bit image data and folds normalized samples directly into an average stack.
+        /// </summary>
+        /// <param name="sourceImageData">Source image pixels in row-major order.</param>
+        /// <param name="stackImageData">Existing normalized stack buffer that is updated in place.</param>
+        /// <param name="stackImageCount">Number of images currently represented by <paramref name="stackImageData"/>.</param>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="affineMatrix">Affine matrix used to sample the source image.</param>
+        /// <param name="flippedImage">Whether to mirror sample coordinates for a flipped frame.</param>
+        public void ApplyAffineTransformationAndStack(ushort[] sourceImageData, float[] stackImageData, int stackImageCount, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            ValidateAffineBuffers(sourceImageData, stackImageData, width, height);
+            ApplyAffineTransformationAndStackCore(sourceImageData, stackImageData, stackImageCount, width, height, affineMatrix, flippedImage);
         }
 
         /// <summary>
@@ -1750,6 +1818,22 @@ namespace NINA.Plugin.Livestack.Image {
         /// <returns>Transformed unsigned 16-bit image data.</returns>
         public ushort[] ApplyAffineTransformationAsUshort(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             ushort[] transformedImageData = new ushort[width * height];
+            ApplyAffineTransformationAsUshortInto(sourceImageData, transformedImageData, width, height, affineMatrix, flippedImage);
+            return transformedImageData;
+        }
+
+        /// <summary>
+        /// Applies an affine transform to normalized floats and writes unsigned 16-bit pixels into a caller-owned buffer.
+        /// </summary>
+        /// <param name="sourceImageData">Source normalized image pixels in row-major order.</param>
+        /// <param name="destinationImageData">Destination buffer that receives transformed unsigned 16-bit pixels.</param>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="affineMatrix">Affine matrix used to sample the source image.</param>
+        /// <param name="flippedImage">Whether to mirror sample coordinates for a flipped frame.</param>
+        public void ApplyAffineTransformationAsUshortInto(float[] sourceImageData, ushort[] destinationImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            ValidateAffineBuffers(sourceImageData, destinationImageData, width, height);
+            Array.Clear(destinationImageData, 0, destinationImageData.Length);
             var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
 
             ProcessAffineRows(width, height, y => {
@@ -1767,14 +1851,104 @@ namespace NINA.Plugin.Livestack.Image {
 
                     if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
                         float newPixelValue = sourceImageData[newY * width + newX];
-                        transformedImageData[rowOffset + x] = (ushort)Math.Clamp(newPixelValue * ushort.MaxValue, 0, ushort.MaxValue);
+                        destinationImageData[rowOffset + x] = (ushort)Math.Clamp(newPixelValue * ushort.MaxValue, 0, ushort.MaxValue);
                     }
 
                     srcX += a;
                     srcY += c;
                 }
             });
-            return transformedImageData;
+        }
+
+        private static void ApplyAffineTransformationAndStackCore(float[] sourceImageData, float[] stackImageData, int stackImageCount, int width, int height, double[,] affineMatrix, bool flippedImage) {
+            if (stackImageCount < 1) {
+                throw new ArgumentOutOfRangeException(nameof(stackImageCount), "Stack image count must be at least 1.");
+            }
+
+            float currentCount = stackImageCount;
+            float nextCount = stackImageCount + 1f;
+            var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
+
+            ProcessAffineRows(width, height, y => {
+                int rowOffset = y * width;
+                double srcX = (b * y) + tx;
+                double srcY = (d * y) + ty;
+
+                for (int x = 0; x < width; x++) {
+                    int newX = (int)(float)srcX;
+                    int newY = (int)(float)srcY;
+                    if (flippedImage) {
+                        newX = width - 1 - newX;
+                        newY = height - 1 - newY;
+                    }
+
+                    float transformedPixel = 0f;
+                    if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
+                        transformedPixel = sourceImageData[newY * width + newX];
+                    }
+
+                    int destinationIndex = rowOffset + x;
+                    stackImageData[destinationIndex] = ((currentCount * stackImageData[destinationIndex]) + transformedPixel) / nextCount;
+
+                    srcX += a;
+                    srcY += c;
+                }
+            });
+        }
+
+        private static void ApplyAffineTransformationAndStackCore(ushort[] sourceImageData, float[] stackImageData, int stackImageCount, int width, int height, double[,] affineMatrix, bool flippedImage) {
+            if (stackImageCount < 1) {
+                throw new ArgumentOutOfRangeException(nameof(stackImageCount), "Stack image count must be at least 1.");
+            }
+
+            float currentCount = stackImageCount;
+            float nextCount = stackImageCount + 1f;
+            var (a, b, tx, c, d, ty) = GetAffineCoefficients(affineMatrix);
+
+            ProcessAffineRows(width, height, y => {
+                int rowOffset = y * width;
+                double srcX = (b * y) + tx;
+                double srcY = (d * y) + ty;
+
+                for (int x = 0; x < width; x++) {
+                    int newX = (int)(float)srcX;
+                    int newY = (int)(float)srcY;
+                    if (flippedImage) {
+                        newX = width - 1 - newX;
+                        newY = height - 1 - newY;
+                    }
+
+                    float transformedPixel = 0f;
+                    if ((uint)newX < (uint)width && (uint)newY < (uint)height) {
+                        transformedPixel = sourceImageData[newY * width + newX] / (float)ushort.MaxValue;
+                    }
+
+                    int destinationIndex = rowOffset + x;
+                    stackImageData[destinationIndex] = ((currentCount * stackImageData[destinationIndex]) + transformedPixel) / nextCount;
+
+                    srcX += a;
+                    srcY += c;
+                }
+            });
+        }
+
+        private static void ValidateAffineBuffers(Array sourceImageData, Array destinationImageData, int width, int height) {
+            if (sourceImageData == null) {
+                throw new ArgumentNullException(nameof(sourceImageData));
+            }
+
+            if (destinationImageData == null) {
+                throw new ArgumentNullException(nameof(destinationImageData));
+            }
+
+            int expectedLength = checked(width * height);
+            if (sourceImageData.Length != expectedLength) {
+                throw new ArgumentException("Source image data length does not match width and height.", nameof(sourceImageData));
+            }
+
+            if (destinationImageData.Length != expectedLength) {
+                throw new ArgumentException("Destination image data length does not match width and height.", nameof(destinationImageData));
+            }
         }
 
         /// <summary>

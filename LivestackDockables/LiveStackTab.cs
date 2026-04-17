@@ -87,9 +87,6 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     StackCount = bag.ImageCount;
                 }, token);
             } catch {
-            } finally {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
             }
         }
 
@@ -134,6 +131,14 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         public void AddImage(float[] data) {
             bag.Add(data);
+        }
+
+        public void AddTransformedImage(float[] data, double[,] affineMatrix, bool flippedImage) {
+            bag.AddTransformed(data, affineMatrix, flippedImage);
+        }
+
+        public void AddTransformedImage(ushort[] data, double[,] affineMatrix, bool flippedImage) {
+            bag.AddTransformed(data, affineMatrix, flippedImage);
         }
 
         public void ForcePushReference(ImageProperties properties, List<Accord.Point> referenceStars, float[] stack) {
