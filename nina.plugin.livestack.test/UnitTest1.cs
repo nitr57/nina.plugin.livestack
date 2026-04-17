@@ -232,6 +232,42 @@ namespace nina.plugin.livestack.test {
         }
 
         [Test]
+        public void GetStars_KeepsSpatialSelectionStableWhenBrightnessRanksChange() {
+            var transformer = ImageTransformer2.Instance;
+            var firstFrameStars = CreateDenseGridStars(brightnessVariant: 0);
+            var secondFrameStars = CreateDenseGridStars(brightnessVariant: 1);
+
+            var firstSelection = transformer.GetStars(firstFrameStars, 600, 600);
+            var secondSelection = transformer.GetStars(secondFrameStars, 600, 600);
+
+            var firstSelectionPositions = firstSelection.Select(x => (x.X, x.Y)).ToHashSet();
+            int overlap = secondSelection.Count(x => firstSelectionPositions.Contains((x.X, x.Y)));
+
+            Assert.That(firstSelection.Count, Is.EqualTo(firstFrameStars.Count));
+            Assert.That(secondSelection.Count, Is.EqualTo(secondFrameStars.Count));
+            Assert.That(overlap, Is.GreaterThanOrEqualTo(firstFrameStars.Count - 4));
+        }
+
+        [Test]
+        public void GetStars_KeepsPhysicalSelectionStableWhenFrameShifts() {
+            var transformer = ImageTransformer2.Instance;
+            const int shiftX = 45;
+            const int shiftY = 38;
+            var firstFrameStars = CreateDenseGridStars(brightnessVariant: 0);
+            var shiftedFrameStars = CreateDenseGridStars(brightnessVariant: 1, shiftX, shiftY);
+
+            var firstSelection = transformer.GetStars(firstFrameStars, 700, 700);
+            var shiftedSelection = transformer.GetStars(shiftedFrameStars, 700, 700);
+
+            var firstSelectionPositions = firstSelection.Select(x => (x.X, x.Y)).ToHashSet();
+            int overlap = shiftedSelection.Count(x => firstSelectionPositions.Contains((x.X - shiftX, x.Y - shiftY)));
+
+            Assert.That(firstSelection.Count, Is.EqualTo(firstFrameStars.Count));
+            Assert.That(shiftedSelection.Count, Is.EqualTo(shiftedFrameStars.Count));
+            Assert.That(overlap, Is.GreaterThanOrEqualTo(firstFrameStars.Count - 4));
+        }
+
+        [Test]
         public void ComputeAffineTransformation_RecoversKnownTransformWithOutliers() {
             var transformer = ImageTransformer2.Instance;
             var referenceStars = CreateSyntheticReferenceStars();
@@ -281,6 +317,85 @@ namespace nina.plugin.livestack.test {
             var actual = transformer.ComputeAffineTransformation(sourceStars, referenceStars);
 
             AssertAffineClose(expected, actual, matrixTol: 0.02, translationTol: 1.0);
+            Assert.That(transformer.IsFlippedImage(actual), Is.True);
+        }
+
+        [Test]
+        public void ComputeAffineTransformation_RecoversKnownTransformInSparseField() {
+            var transformer = ImageTransformer2.Instance;
+            var referenceStars = new List<Point> {
+                new Point(120, 90),
+                new Point(430, 130),
+                new Point(760, 260),
+                new Point(260, 510),
+                new Point(640, 620),
+                new Point(1040, 420),
+                new Point(1180, 760),
+                new Point(350, 850)
+            };
+
+            double[,] expected = new double[3, 3] {
+                { 1.002, -0.023, 31.5 },
+                { 0.019, 0.998, -18.25 },
+                { 0.0, 0.0, 1.0 }
+            };
+
+            var sourceStars = ApplyAffine(referenceStars, expected, seed: 7, jitter: 0.18f);
+            sourceStars.AddRange(new[] {
+                new Point(85, 810),
+                new Point(1160, 120),
+                new Point(900, 930)
+            });
+            Shuffle(sourceStars, seed: 17);
+
+            var actual = transformer.ComputeAffineTransformation(sourceStars, referenceStars);
+
+            AssertAffineClose(expected, actual, matrixTol: 0.015, translationTol: 0.9);
+            Assert.That(ComputeMedianResidual(referenceStars, ApplyAffine(referenceStars, expected), actual), Is.LessThan(0.9));
+        }
+
+        [Test]
+        public void ComputeAffineTransformation_RecoversKnownTransformInVeryDenseField() {
+            var transformer = ImageTransformer2.Instance;
+            var referenceStars = CreateRandomStarField(count: 3000, width: 4200, height: 2800, seed: 91);
+
+            double[,] expected = new double[3, 3] {
+                { 1.0012, 0.0125, -42.0 },
+                { -0.0105, 0.9991, 27.5 },
+                { 0.0, 0.0, 1.0 }
+            };
+
+            var sourceStars = ApplyAffine(referenceStars, expected, seed: 123, jitter: 0.22f);
+            sourceStars.AddRange(CreateRandomStarField(count: 350, width: 4200, height: 2800, seed: 404));
+            Shuffle(sourceStars, seed: 812);
+            Shuffle(referenceStars, seed: 613);
+
+            var actual = transformer.ComputeAffineTransformation(sourceStars, referenceStars);
+
+            AssertAffineClose(expected, actual, matrixTol: 0.01, translationTol: 1.0);
+            Assert.That(ComputeMedianResidual(referenceStars, ApplyAffine(referenceStars, expected), actual), Is.LessThan(0.9));
+        }
+
+        [Test]
+        public void ComputeAffineTransformation_RecoversDenseMeridianFlipLikeRotation() {
+            var transformer = ImageTransformer2.Instance;
+            var referenceStars = CreateRandomStarField(count: 3000, width: 4200, height: 2800, seed: 151);
+
+            double[,] expected = new double[3, 3] {
+                { -1.0, 0.0, 4200.0 },
+                { 0.0, -1.0, 2800.0 },
+                { 0.0, 0.0, 1.0 }
+            };
+
+            var sourceStars = ApplyAffine(referenceStars, expected, seed: 227, jitter: 0.22f);
+            sourceStars.AddRange(CreateRandomStarField(count: 350, width: 4200, height: 2800, seed: 808));
+            Shuffle(sourceStars, seed: 331);
+            Shuffle(referenceStars, seed: 977);
+
+            var actual = transformer.ComputeAffineTransformation(sourceStars, referenceStars);
+
+            AssertAffineClose(expected, actual, matrixTol: 0.01, translationTol: 1.0);
+            Assert.That(ComputeMedianResidual(referenceStars, ApplyAffine(referenceStars, expected), actual), Is.LessThan(0.9));
             Assert.That(transformer.IsFlippedImage(actual), Is.True);
         }
 
@@ -421,6 +536,53 @@ namespace nina.plugin.livestack.test {
                 new Point(1260, 1040),
                 new Point(1460, 980)
             };
+        }
+
+        private static List<DetectedStar> CreateDenseGridStars(int brightnessVariant, int shiftX = 0, int shiftY = 0) {
+            const int cellSize = 100;
+            var localPositions = new[] {
+                (X: 50, Y: 50),
+                (X: 25, Y: 25),
+                (X: 75, Y: 75),
+                (X: 20, Y: 80)
+            };
+
+            var stars = new List<DetectedStar>();
+            for (int cellY = 0; cellY < 6; cellY++) {
+                for (int cellX = 0; cellX < 6; cellX++) {
+                    for (int i = 0; i < localPositions.Length; i++) {
+                        var localPosition = localPositions[i];
+                        int x = (cellX * cellSize) + localPosition.X + shiftX;
+                        int y = (cellY * cellSize) + localPosition.Y + shiftY;
+                        bool brightInThisVariant = brightnessVariant == 0
+                            ? i < 2
+                            : i >= 2;
+
+                        stars.Add(new DetectedStar {
+                            Position = new Point(x, y),
+                            BoundingBox = new System.Drawing.Rectangle(x - 4, y - 4, 8, 8),
+                            MaxBrightness = brightInThisVariant ? 30000 - (i * 100) : 12000 - (i * 100),
+                            Background = 500,
+                            HFR = 3.0
+                        });
+                    }
+                }
+            }
+
+            return stars;
+        }
+
+        private static List<Point> CreateRandomStarField(int count, int width, int height, int seed) {
+            Random random = new Random(seed);
+            var stars = new List<Point>(count);
+
+            for (int i = 0; i < count; i++) {
+                float x = 20f + ((float)random.NextDouble() * (width - 40f));
+                float y = 20f + ((float)random.NextDouble() * (height - 40f));
+                stars.Add(new Point(x, y));
+            }
+
+            return stars;
         }
 
         private static List<Point> ApplyAffine(IEnumerable<Point> points, double[,] matrix, int seed = 0, float jitter = 0f) {

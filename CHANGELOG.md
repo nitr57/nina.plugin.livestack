@@ -1,5 +1,9 @@
 # Livestack
 
+## 1.1.0.1
+- Improved star selection consistency so reference stars are more likely to match across frames
+- Added more robust star matching for sparse fields, very dense fields, and meridian-flip-like upside-down frames
+
 ## 1.1.0.0
 - Saving and reading FITS files now use the CFITSIO diskfile APIs so square or curly bracket characters in file names work correctly
 - Image alignment now uses RANSAC to improve robustness against outliers
