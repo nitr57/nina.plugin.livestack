@@ -1,6 +1,6 @@
 # Livestack
 
-## 1.1.0.1
+## 1.1.1.0
 - Improved star selection consistency so reference stars are more likely to match across frames
 - Added more robust star matching for sparse fields, very dense fields, and meridian-flip-like upside-down frames
 
