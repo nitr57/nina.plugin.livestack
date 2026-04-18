@@ -119,6 +119,28 @@ namespace NINA.Plugin.Livestack {
             }
         }
 
+        public bool DefaultEnableBackgroundExtraction {
+            get {
+                return PluginSettings.GetValueBoolean(nameof(DefaultEnableBackgroundExtraction), false);
+            }
+            set {
+                PluginSettings.SetValueBoolean(nameof(DefaultEnableBackgroundExtraction), value);
+                RaisePropertyChanged();
+            }
+        }
+
+        public double DefaultBackgroundExtractionAmount {
+            get {
+                return PluginSettings.GetValueDouble(nameof(DefaultBackgroundExtractionAmount), 0.7);
+            }
+            set {
+                if (value < 0) { value = 0; }
+                if (value > 1) { value = 1; }
+                PluginSettings.SetValueDouble(nameof(DefaultBackgroundExtractionAmount), value);
+                RaisePropertyChanged();
+            }
+        }
+
         public bool DefaultEnableGreenDeNoise {
             get {
                 return PluginSettings.GetValueBoolean(nameof(DefaultEnableGreenDeNoise), false);

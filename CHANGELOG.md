@@ -1,5 +1,8 @@
 # Livestack
 
+## Unreleased
+- Added experimental background extraction for stack previews, using automatic sample boxes, global rejection, and polynomial background modeling. This affects preview rendering only.
+
 ## 1.1.1.0
 - Improved star selection consistency so reference stars are more likely to match across frames
 - Added more robust star matching for sparse fields, very dense fields, and meridian-flip-like upside-down frames

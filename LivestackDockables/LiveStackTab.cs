@@ -47,6 +47,12 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         private double blackClipping;
 
         [ObservableProperty]
+        private bool enableBackgroundExtraction;
+
+        [ObservableProperty]
+        private double backgroundExtractionAmount;
+
+        [ObservableProperty]
         private int imageRotation;
 
         [ObservableProperty]
@@ -67,6 +73,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             this.bag = bag;
             stretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
             blackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
+            enableBackgroundExtraction = LivestackMediator.Plugin.DefaultEnableBackgroundExtraction;
+            backgroundExtractionAmount = LivestackMediator.Plugin.DefaultBackgroundExtractionAmount;
             imageRotation = 0;
             imageFlipValue = 1;
             downsample = LivestackMediator.Plugin.DefaultDownsample;
@@ -76,6 +84,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         public void ResetSettings() {
             StretchFactor = LivestackMediator.Plugin.DefaultStretchAmount;
             BlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
+            EnableBackgroundExtraction = LivestackMediator.Plugin.DefaultEnableBackgroundExtraction;
+            BackgroundExtractionAmount = LivestackMediator.Plugin.DefaultBackgroundExtractionAmount;
             Downsample = LivestackMediator.Plugin.DefaultDownsample;
         }
 
@@ -83,15 +93,18 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         public async Task Refresh(CancellationToken token) {
             try {
                 await Task.Run(() => {
-                    StackImage = Render(StretchFactor, BlackClipping, Downsample);
+                    StackImage = Render(StretchFactor, BlackClipping, EnableBackgroundExtraction, BackgroundExtractionAmount, Downsample);
                     StackCount = bag.ImageCount;
                 }, token);
             } catch {
             }
         }
 
-        private BitmapSource Render(double stretchFactor, double blackClipping, int downsample) {
-            using var bmp = LivestackMediator.GetImageMath().CreateGrayBitmap(Stack, Properties.Width, Properties.Height);
+        private BitmapSource Render(double stretchFactor, double blackClipping, bool enableBackgroundExtraction, double backgroundExtractionAmount, int downsample) {
+            float[] previewData = enableBackgroundExtraction
+                ? LivestackMediator.GetImageMath().CreateBackgroundExtractedPreview(Stack, Properties.Width, Properties.Height, backgroundExtractionAmount)
+                : Stack;
+            using var bmp = LivestackMediator.GetImageMath().CreateGrayBitmap(previewData, Properties.Width, Properties.Height);
             var filter = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(bmp.Median, bmp.MedianAbsoluteDeviation, Properties.BitDepth), stretchFactor, blackClipping, PixelFormats.Gray16);
             filter.ApplyInPlace(bmp.Bitmap);
 

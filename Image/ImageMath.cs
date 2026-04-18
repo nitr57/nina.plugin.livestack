@@ -11,6 +11,12 @@ using System.Drawing;
 namespace NINA.Plugin.Livestack.Image {
 
     public class ImageMath : IImageMath {
+        private const int AbeDefaultBoxSize = 5;
+        private const int AbeDefaultBoxSeparation = 5;
+        private const double AbeDefaultGlobalDeviation = 0.8d;
+        private const double AbeDefaultGlobalUnbalance = 1.8d;
+        private const int AbeDefaultFunctionDegree = 4;
+
         private static readonly Lazy<ImageMath> lazy = new Lazy<ImageMath>(() => new ImageMath());
 
         public static ImageMath Instance => lazy.Value;
@@ -398,6 +404,532 @@ namespace NINA.Plugin.Livestack.Image {
             }
 
             return (median, medianAbsoluteDeviation);
+        }
+
+        public float[] CreateBackgroundExtractedPreview(float[] data, int width, int height, double amount) {
+            if (width <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(width), "Width must be greater than zero.");
+            }
+            if (height <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(height), "Height must be greater than zero.");
+            }
+            if (data.Length != width * height) {
+                throw new ArgumentException("Data length does not match width and height dimensions.", nameof(data));
+            }
+
+            float[] output = new float[data.Length];
+            float strength = (float)Math.Clamp(amount, 0d, 1d);
+            if (strength <= 0f) {
+                Array.Copy(data, output, data.Length);
+                return output;
+            }
+
+            List<BackgroundSample> samples = GenerateAutomaticBackgroundSamples(data, width, height);
+            int degree = GetBestPolynomialDegree(samples.Count);
+            if (degree == 0 || !TryFitAbePolynomial(samples, degree, out double[] coefficients, out float globalBackground)) {
+                Array.Copy(data, output, data.Length);
+                return output;
+            }
+
+            ApplyPolynomialBackgroundCorrection(data, output, width, height, coefficients, degree, globalBackground, strength);
+
+            return output;
+        }
+
+        private readonly struct BackgroundSample {
+
+            public BackgroundSample(double x, double y, double value) {
+                X = x;
+                Y = y;
+                Value = value;
+            }
+
+            public double X { get; }
+            public double Y { get; }
+            public double Value { get; }
+        }
+
+        private static List<BackgroundSample> GenerateAutomaticBackgroundSamples(float[] data, int width, int height) {
+            int boxSize = Math.Min(AbeDefaultBoxSize, Math.Min(width, height));
+            int samplePitch = Math.Max(1, AbeDefaultBoxSize + AbeDefaultBoxSeparation);
+            int columns = Math.Max(1, 1 + Math.Max(0, width - boxSize) / samplePitch);
+            int rows = Math.Max(1, 1 + Math.Max(0, height - boxSize) / samplePitch);
+            BackgroundSample[] candidates = new BackgroundSample[columns * rows];
+            bool[] valid = new bool[candidates.Length];
+
+            Parallel.For(0, rows, row => {
+                int startY = Math.Min(row * samplePitch, Math.Max(0, height - boxSize));
+                int endY = Math.Min(height, startY + boxSize);
+
+                for (int column = 0; column < columns; column++) {
+                    int startX = Math.Min(column * samplePitch, Math.Max(0, width - boxSize));
+                    int endX = Math.Min(width, startX + boxSize);
+                    int index = (row * columns) + column;
+
+                    if (TryEstimateCellBackground(data, width, startX, endX, startY, endY, out float background)) {
+                        double x = width <= 1 ? 0d : ((startX + endX - 1d) / (width - 1d)) - 1d;
+                        double y = height <= 1 ? 0d : ((startY + endY - 1d) / (height - 1d)) - 1d;
+                        candidates[index] = new BackgroundSample(x, y, background);
+                        valid[index] = true;
+                    }
+                }
+            });
+
+            List<BackgroundSample> samples = new List<BackgroundSample>(candidates.Length);
+            for (int i = 0; i < candidates.Length; i++) {
+                if (valid[i]) {
+                    samples.Add(candidates[i]);
+                }
+            }
+
+            return samples;
+        }
+
+        private static int GetBestPolynomialDegree(int sampleCount) {
+            for (int degree = AbeDefaultFunctionDegree; degree >= 1; degree--) {
+                if (sampleCount >= GetPolynomialTermCount(degree)) {
+                    return degree;
+                }
+            }
+
+            return 0;
+        }
+
+        private static int GetPolynomialTermCount(int degree) {
+            return ((degree + 1) * (degree + 2)) / 2;
+        }
+
+        private static bool TryFitAbePolynomial(List<BackgroundSample> samples, int degree, out double[] coefficients, out float globalBackground) {
+            coefficients = [];
+            globalBackground = 0f;
+
+            if (samples.Count == 0) {
+                return false;
+            }
+
+            double[] values = ArrayPool<double>.Shared.Rent(samples.Count);
+            try {
+                for (int i = 0; i < samples.Count; i++) {
+                    values[i] = samples[i].Value;
+                }
+
+                double median = GetMedian(values, samples.Count);
+                double mad = GetMedianAbsoluteDeviation(values, samples.Count, median);
+                double sigma = mad * 1.4826d;
+                globalBackground = (float)Math.Clamp(median, 0d, 1d);
+
+                bool[] included = new bool[samples.Count];
+                int includedCount = 0;
+                double lowerLimit = sigma > 0.0000001d ? median - (AbeDefaultGlobalDeviation * AbeDefaultGlobalUnbalance * sigma) : double.NegativeInfinity;
+                double upperLimit = sigma > 0.0000001d ? median + (AbeDefaultGlobalDeviation * sigma) : double.PositiveInfinity;
+                for (int i = 0; i < samples.Count; i++) {
+                    bool keep = samples[i].Value >= lowerLimit && samples[i].Value <= upperLimit;
+                    included[i] = keep;
+                    if (keep) {
+                        includedCount++;
+                    }
+                }
+
+                int termCount = GetPolynomialTermCount(degree);
+                if (includedCount < termCount) {
+                    Array.Fill(included, true);
+                }
+
+                return TryFitPolynomial(samples, included, degree, out coefficients);
+            } finally {
+                ArrayPool<double>.Shared.Return(values);
+            }
+        }
+
+        private static bool TryFitPolynomial(List<BackgroundSample> samples, bool[] included, int degree, out double[] coefficients) {
+            int termCount = GetPolynomialTermCount(degree);
+            double[,] matrix = new double[termCount, termCount];
+            double[] rhs = new double[termCount];
+            double[] terms = new double[termCount];
+            int includedCount = 0;
+
+            for (int i = 0; i < samples.Count; i++) {
+                if (!included[i]) {
+                    continue;
+                }
+
+                includedCount++;
+                FillPolynomialTerms(samples[i].X, samples[i].Y, degree, terms);
+                for (int row = 0; row < termCount; row++) {
+                    rhs[row] += terms[row] * samples[i].Value;
+                    for (int column = 0; column < termCount; column++) {
+                        matrix[row, column] += terms[row] * terms[column];
+                    }
+                }
+            }
+
+            if (includedCount < termCount) {
+                coefficients = [];
+                return false;
+            }
+
+            for (int i = 0; i < termCount; i++) {
+                matrix[i, i] += 0.0000000001d;
+            }
+
+            return TrySolveLinearSystem(matrix, rhs, out coefficients);
+        }
+
+        private static bool TrySolveLinearSystem(double[,] matrix, double[] rhs, out double[] solution) {
+            int size = rhs.Length;
+            double[,] a = (double[,])matrix.Clone();
+            double[] b = (double[])rhs.Clone();
+
+            for (int pivot = 0; pivot < size; pivot++) {
+                int bestRow = pivot;
+                double bestValue = Math.Abs(a[pivot, pivot]);
+                for (int row = pivot + 1; row < size; row++) {
+                    double value = Math.Abs(a[row, pivot]);
+                    if (value > bestValue) {
+                        bestRow = row;
+                        bestValue = value;
+                    }
+                }
+
+                if (bestValue < 0.000000000001d) {
+                    solution = [];
+                    return false;
+                }
+
+                if (bestRow != pivot) {
+                    for (int column = pivot; column < size; column++) {
+                        (a[pivot, column], a[bestRow, column]) = (a[bestRow, column], a[pivot, column]);
+                    }
+
+                    (b[pivot], b[bestRow]) = (b[bestRow], b[pivot]);
+                }
+
+                double pivotValue = a[pivot, pivot];
+                for (int column = pivot; column < size; column++) {
+                    a[pivot, column] /= pivotValue;
+                }
+                b[pivot] /= pivotValue;
+
+                for (int row = 0; row < size; row++) {
+                    if (row == pivot) {
+                        continue;
+                    }
+
+                    double factor = a[row, pivot];
+                    if (factor == 0d) {
+                        continue;
+                    }
+
+                    for (int column = pivot; column < size; column++) {
+                        a[row, column] -= factor * a[pivot, column];
+                    }
+                    b[row] -= factor * b[pivot];
+                }
+            }
+
+            solution = b;
+            return true;
+        }
+
+        private static void FillPolynomialTerms(double x, double y, int degree, double[] terms) {
+            int index = 0;
+            terms[index++] = 1d;
+
+            if (degree < 1) {
+                return;
+            }
+
+            terms[index++] = x;
+            terms[index++] = y;
+
+            if (degree < 2) {
+                return;
+            }
+
+            double x2 = x * x;
+            double y2 = y * y;
+            terms[index++] = x2;
+            terms[index++] = x * y;
+            terms[index++] = y2;
+
+            if (degree < 3) {
+                return;
+            }
+
+            double x3 = x2 * x;
+            double y3 = y2 * y;
+            terms[index++] = x3;
+            terms[index++] = x2 * y;
+            terms[index++] = x * y2;
+            terms[index++] = y3;
+
+            if (degree < 4) {
+                return;
+            }
+
+            terms[index++] = x3 * x;
+            terms[index++] = x3 * y;
+            terms[index++] = x2 * y2;
+            terms[index++] = x * y3;
+            terms[index] = y3 * y;
+        }
+
+        private static double EvaluatePolynomial(double[] coefficients, int degree, double x, double y) {
+            int index = 0;
+            double model = coefficients[index++];
+
+            if (degree >= 1) {
+                model += (coefficients[index++] * x) + (coefficients[index++] * y);
+            }
+
+            if (degree >= 2) {
+                double x2 = x * x;
+                double y2 = y * y;
+                model += (coefficients[index++] * x2) + (coefficients[index++] * x * y) + (coefficients[index++] * y2);
+
+                if (degree >= 3) {
+                    double x3 = x2 * x;
+                    double y3 = y2 * y;
+                    model += (coefficients[index++] * x3) + (coefficients[index++] * x2 * y) + (coefficients[index++] * x * y2) + (coefficients[index++] * y3);
+
+                    if (degree >= 4) {
+                        model += (coefficients[index++] * x3 * x) + (coefficients[index++] * x3 * y) + (coefficients[index++] * x2 * y2) + (coefficients[index++] * x * y3) + (coefficients[index] * y3 * y);
+                    }
+                }
+            }
+
+            return model;
+        }
+
+        private static void ApplyPolynomialBackgroundCorrection(float[] data, float[] output, int width, int height, double[] coefficients, int degree, float globalBackground, float strength) {
+            float[] simdOffsets = CreateSimdOffsets();
+            float xStep = width > 1 ? 2f / (width - 1) : 0f;
+            float yStep = height > 1 ? 2f / (height - 1) : 0f;
+
+            Parallel.For(0, height, y => {
+                float yNormalized = height > 1 ? -1f + (y * yStep) : 0f;
+                int rowOffset = y * width;
+                int x = 0;
+
+                if (System.Numerics.Vector.IsHardwareAccelerated) {
+                    ApplyPolynomialBackgroundCorrectionVectorized(data, output, rowOffset, width, yNormalized, xStep, coefficients, degree, globalBackground, strength, simdOffsets, ref x);
+                }
+
+                for (; x < width; x++) {
+                    float xNormalized = width > 1 ? -1f + (x * xStep) : 0f;
+                    float model = (float)EvaluatePolynomial(coefficients, degree, xNormalized, yNormalized);
+                    float value = data[rowOffset + x] - ((model - globalBackground) * strength);
+
+                    if (float.IsNaN(value) || float.IsInfinity(value)) {
+                        value = 0f;
+                    }
+
+                    output[rowOffset + x] = Math.Clamp(value, 0f, 1f);
+                }
+            });
+        }
+
+        private static void ApplyPolynomialBackgroundCorrectionVectorized(float[] data, float[] output, int rowOffset, int width, float yNormalized, float xStep, double[] coefficients, int degree, float globalBackground, float strength, float[] simdOffsets, ref int x) {
+            int vectorEnd = width - (width % System.Numerics.Vector<float>.Count);
+            var offsets = new System.Numerics.Vector<float>(simdOffsets);
+            var xStepVector = new System.Numerics.Vector<float>(xStep);
+            var y = new System.Numerics.Vector<float>(yNormalized);
+            var global = new System.Numerics.Vector<float>(globalBackground);
+            var strengthVector = new System.Numerics.Vector<float>(strength);
+            var zero = System.Numerics.Vector<float>.Zero;
+            var one = new System.Numerics.Vector<float>(1f);
+
+            for (; x < vectorEnd; x += System.Numerics.Vector<float>.Count) {
+                var xNormalized = new System.Numerics.Vector<float>(-1f + (x * xStep)) + (offsets * xStepVector);
+                var model = EvaluatePolynomialVector(coefficients, degree, xNormalized, y);
+                var value = new System.Numerics.Vector<float>(data, rowOffset + x) - ((model - global) * strengthVector);
+                value = System.Numerics.Vector.Min(System.Numerics.Vector.Max(value, zero), one);
+                value.CopyTo(output, rowOffset + x);
+            }
+        }
+
+        private static System.Numerics.Vector<float> EvaluatePolynomialVector(double[] coefficients, int degree, System.Numerics.Vector<float> x, System.Numerics.Vector<float> y) {
+            int index = 0;
+            var model = new System.Numerics.Vector<float>((float)coefficients[index++]);
+
+            if (degree >= 1) {
+                model += (new System.Numerics.Vector<float>((float)coefficients[index++]) * x)
+                    + (new System.Numerics.Vector<float>((float)coefficients[index++]) * y);
+            }
+
+            if (degree >= 2) {
+                var x2 = x * x;
+                var y2 = y * y;
+                model += (new System.Numerics.Vector<float>((float)coefficients[index++]) * x2)
+                    + (new System.Numerics.Vector<float>((float)coefficients[index++]) * x * y)
+                    + (new System.Numerics.Vector<float>((float)coefficients[index++]) * y2);
+
+                if (degree >= 3) {
+                    var x3 = x2 * x;
+                    var y3 = y2 * y;
+                    model += (new System.Numerics.Vector<float>((float)coefficients[index++]) * x3)
+                        + (new System.Numerics.Vector<float>((float)coefficients[index++]) * x2 * y)
+                        + (new System.Numerics.Vector<float>((float)coefficients[index++]) * x * y2)
+                        + (new System.Numerics.Vector<float>((float)coefficients[index++]) * y3);
+
+                    if (degree >= 4) {
+                        model += (new System.Numerics.Vector<float>((float)coefficients[index++]) * x3 * x)
+                            + (new System.Numerics.Vector<float>((float)coefficients[index++]) * x3 * y)
+                            + (new System.Numerics.Vector<float>((float)coefficients[index++]) * x2 * y2)
+                            + (new System.Numerics.Vector<float>((float)coefficients[index++]) * x * y3)
+                            + (new System.Numerics.Vector<float>((float)coefficients[index]) * y3 * y);
+                    }
+                }
+            }
+
+            return model;
+        }
+
+        private static float[] CreateSimdOffsets() {
+            float[] offsets = new float[System.Numerics.Vector<float>.Count];
+            for (int i = 0; i < offsets.Length; i++) {
+                offsets[i] = i;
+            }
+
+            return offsets;
+        }
+
+        private static double GetMedian(double[] values, int count) {
+            Array.Sort(values, 0, count);
+            int middle = count / 2;
+            if ((count & 1) == 1) {
+                return values[middle];
+            }
+
+            return (values[middle - 1] + values[middle]) * 0.5d;
+        }
+
+        private static double GetMedianAbsoluteDeviation(double[] values, int count, double median) {
+            for (int i = 0; i < count; i++) {
+                values[i] = Math.Abs(values[i] - median);
+            }
+
+            return GetMedian(values, count);
+        }
+
+        private static bool TryEstimateCellBackground(float[] data, int width, int startX, int endX, int startY, int endY, out float background) {
+            int cellWidth = endX - startX;
+            int cellHeight = endY - startY;
+            int cellPixels = cellWidth * cellHeight;
+            if (cellPixels <= 0) {
+                background = 0f;
+                return false;
+            }
+
+            const int maxSamples = 256;
+            int step = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(cellPixels / (double)maxSamples)));
+            int estimatedSamples = ((cellWidth + step - 1) / step) * ((cellHeight + step - 1) / step);
+            float[] samples = ArrayPool<float>.Shared.Rent(estimatedSamples);
+            int count = 0;
+            int minimumSampleCount = Math.Min(8, cellPixels);
+
+            try {
+                for (int y = startY; y < endY; y += step) {
+                    int rowOffset = y * width;
+                    for (int x = startX; x < endX; x += step) {
+                        float value = data[rowOffset + x];
+                        if (!float.IsNaN(value) && !float.IsInfinity(value)) {
+                            samples[count] = value;
+                            count++;
+                        }
+                    }
+                }
+
+                if (count < minimumSampleCount) {
+                    background = 0f;
+                    return false;
+                }
+
+                Array.Sort(samples, 0, count);
+
+                int lower = 0;
+                int upper = count;
+                for (int iteration = 0; iteration < 5; iteration++) {
+                    CalculateSortedRangeStatistics(samples, lower, upper, out double mean, out double median, out double sigma);
+                    if (sigma <= 0d) {
+                        break;
+                    }
+
+                    int nextLower = LowerBound(samples, lower, upper, median - (3d * sigma));
+                    int nextUpper = UpperBound(samples, lower, upper, median + (3d * sigma));
+                    if (nextUpper - nextLower < minimumSampleCount || (nextLower == lower && nextUpper == upper)) {
+                        break;
+                    }
+
+                    lower = nextLower;
+                    upper = nextUpper;
+                }
+
+                CalculateSortedRangeStatistics(samples, lower, upper, out double clippedMean, out double clippedMedian, out double clippedSigma);
+                double mode = (2.5d * clippedMedian) - (1.5d * clippedMean);
+                if (clippedSigma > 0d && ((clippedMean - clippedMedian) / clippedSigma) > 0.3d) {
+                    mode = clippedMedian;
+                }
+
+                background = Math.Clamp((float)mode, 0f, 1f);
+                return true;
+            } finally {
+                ArrayPool<float>.Shared.Return(samples);
+            }
+        }
+
+        private static void CalculateSortedRangeStatistics(float[] sortedValues, int lower, int upper, out double mean, out double median, out double sigma) {
+            int count = upper - lower;
+            if (count <= 0) {
+                mean = 0d;
+                median = 0d;
+                sigma = 0d;
+                return;
+            }
+
+            double sum = 0d;
+            double sumSquares = 0d;
+            for (int i = lower; i < upper; i++) {
+                double value = sortedValues[i];
+                sum += value;
+                sumSquares += value * value;
+            }
+
+            mean = sum / count;
+            int middle = lower + (count / 2);
+            median = (count & 1) == 1 ? sortedValues[middle] : (sortedValues[middle - 1] + sortedValues[middle]) * 0.5d;
+            double variance = (sumSquares / count) - (mean * mean);
+            sigma = Math.Sqrt(Math.Max(variance, 0d));
+        }
+
+        private static int LowerBound(float[] sortedValues, int lower, int upper, double value) {
+            int left = lower;
+            int right = upper;
+            while (left < right) {
+                int middle = left + ((right - left) / 2);
+                if (sortedValues[middle] < value) {
+                    left = middle + 1;
+                } else {
+                    right = middle;
+                }
+            }
+
+            return left;
+        }
+
+        private static int UpperBound(float[] sortedValues, int lower, int upper, double value) {
+            int left = lower;
+            int right = upper;
+            while (left < right) {
+                int middle = left + ((right - left) / 2);
+                if (sortedValues[middle] <= value) {
+                    left = middle + 1;
+                } else {
+                    right = middle;
+                }
+            }
+
+            return left;
         }
 
         public void ApplyGreenDeNoiseInPlace(Bitmap colorBitmap, double amount) {

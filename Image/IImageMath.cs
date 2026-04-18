@@ -7,6 +7,7 @@ namespace NINA.Plugin.Livestack.Image {
 
         void ApplyGreenDeNoiseInPlace(Bitmap colorBitmap, double amount);
         (double Median, double MAD) CalculateMedianAndMAD(int[] pixelValueCounts, int originalDataLength);
+        float[] CreateBackgroundExtractedPreview(float[] data, int width, int height, double amount);
         ImageMath.BitmapWithMedian CreateGrayBitmap(float[] data, int width, int height);
         Bitmap DownsampleGray16(Bitmap input, int factor);
         List<Accord.Point> Flip(List<Accord.Point> points, int width, int height);

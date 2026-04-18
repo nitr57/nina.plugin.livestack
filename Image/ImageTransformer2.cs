@@ -19,6 +19,7 @@ namespace NINA.Plugin.Livestack.Image {
         private const int MaxTargetQuads = 10000;
         private const int MaxQuadCandidates = 8;
         private const int MaxQuadMatchPairs = 160;
+        private const int MinimumAffineStarCount = 3;
         private const int MaxStableSelectionCandidates = 2000;
         private const int StableSelectionGridSize = 32;
         private const int MinimumTriangleSetForParallelVoting = 1024;
@@ -58,12 +59,17 @@ namespace NINA.Plugin.Livestack.Image {
                 return new List<Point>();
             }
 
+            int rawStarCount = starList.Count;
             var candidateStars = BuildScoredStars(starList, width, height, strictFiltering: true);
+            int strictCandidateCount = candidateStars.Count;
+            int looseCandidateCount = -1;
             if (candidateStars.Count < 8) {
                 candidateStars = BuildScoredStars(starList, width, height, strictFiltering: false);
+                looseCandidateCount = candidateStars.Count;
             }
 
             if (candidateStars.Count == 0) {
+                Logger.Warning($"Live Stack star filtering produced no alignment candidates. Raw detector stars={rawStarCount}; Strict candidates={strictCandidateCount}; Loose candidates={FormatCandidateCount(looseCandidateCount)}; Required={MinimumAffineStarCount}; Frame size={width}x{height}");
                 return new List<Point>();
             }
 
@@ -94,7 +100,15 @@ namespace NINA.Plugin.Livestack.Image {
                 }
             }
 
+            if (selectedStars.Count < MinimumAffineStarCount) {
+                Logger.Warning($"Live Stack star selection produced too few alignment stars. Raw detector stars={rawStarCount}; Strict candidates={strictCandidateCount}; Loose candidates={FormatCandidateCount(looseCandidateCount)}; Selected alignment stars={selectedStars.Count}; Required={MinimumAffineStarCount}; Frame size={width}x{height}");
+            }
+
             return selectedStars;
+        }
+
+        private static string FormatCandidateCount(int count) {
+            return count >= 0 ? count.ToString() : "not used";
         }
 
         /// <summary>
@@ -478,8 +492,10 @@ namespace NINA.Plugin.Livestack.Image {
         public double[,] ComputeAffineTransformation(
                 List<Point> stars,
                 List<Point> referenceStars) {
-            if (stars == null || referenceStars == null || stars.Count < 3 || referenceStars.Count < 3) {
-                throw new InvalidOperationException("Not enough stars for affine transformation.");
+            if (stars == null || referenceStars == null || stars.Count < MinimumAffineStarCount || referenceStars.Count < MinimumAffineStarCount) {
+                int targetStarCount = stars?.Count ?? 0;
+                int referenceStarCount = referenceStars?.Count ?? 0;
+                throw new InvalidOperationException($"Not enough stars for affine transformation. Target stars={targetStarCount}; Reference stars={referenceStarCount}; Required={MinimumAffineStarCount}.");
             }
 
             try {
