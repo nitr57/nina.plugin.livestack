@@ -24,7 +24,6 @@ namespace NINA.Plugin.Livestack.Image {
         private const int StableSelectionGridSize = 32;
         private const int MinimumTriangleSetForParallelVoting = 1024;
         private const double SaturationThreshold = 65000d;
-        private const double MaxAllowedEccentricity = 0.85d;
         private const double MaxTriangleScaleDelta = 0.12d;
         private const double MinTriangleLongestSide = 12d;
         private const double MinQuadLongestSide = 12d;
@@ -60,16 +59,17 @@ namespace NINA.Plugin.Livestack.Image {
             }
 
             int rawStarCount = starList.Count;
-            var candidateStars = BuildScoredStars(starList, width, height, strictFiltering: true);
+            var candidateStars = BuildScoredStars(starList, width, height, strictFiltering: true, out StarFilterDiagnostics strictDiagnostics);
             int strictCandidateCount = candidateStars.Count;
             int looseCandidateCount = -1;
+            StarFilterDiagnostics looseDiagnostics = default;
             if (candidateStars.Count < 8) {
-                candidateStars = BuildScoredStars(starList, width, height, strictFiltering: false);
+                candidateStars = BuildScoredStars(starList, width, height, strictFiltering: false, out looseDiagnostics);
                 looseCandidateCount = candidateStars.Count;
             }
 
             if (candidateStars.Count == 0) {
-                Logger.Warning($"Live Stack star filtering produced no alignment candidates. Raw detector stars={rawStarCount}; Strict candidates={strictCandidateCount}; Loose candidates={FormatCandidateCount(looseCandidateCount)}; Required={MinimumAffineStarCount}; Frame size={width}x{height}");
+                Logger.Warning($"Live Stack star filtering produced no alignment candidates. Raw detector stars={rawStarCount}; Strict candidates={strictCandidateCount}; Loose candidates={FormatCandidateCount(looseCandidateCount)}; Strict rejects=[{strictDiagnostics}]; Loose rejects=[{FormatDiagnostics(looseCandidateCount, looseDiagnostics)}]; Required={MinimumAffineStarCount}; Frame size={width}x{height}");
                 return new List<Point>();
             }
 
@@ -101,7 +101,7 @@ namespace NINA.Plugin.Livestack.Image {
             }
 
             if (selectedStars.Count < MinimumAffineStarCount) {
-                Logger.Warning($"Live Stack star selection produced too few alignment stars. Raw detector stars={rawStarCount}; Strict candidates={strictCandidateCount}; Loose candidates={FormatCandidateCount(looseCandidateCount)}; Selected alignment stars={selectedStars.Count}; Required={MinimumAffineStarCount}; Frame size={width}x{height}");
+                Logger.Warning($"Live Stack star selection produced too few alignment stars. Raw detector stars={rawStarCount}; Strict candidates={strictCandidateCount}; Loose candidates={FormatCandidateCount(looseCandidateCount)}; Strict rejects=[{strictDiagnostics}]; Loose rejects=[{FormatDiagnostics(looseCandidateCount, looseDiagnostics)}]; Selected alignment stars={selectedStars.Count}; Required={MinimumAffineStarCount}; Frame size={width}x{height}");
             }
 
             return selectedStars;
@@ -109,6 +109,10 @@ namespace NINA.Plugin.Livestack.Image {
 
         private static string FormatCandidateCount(int count) {
             return count >= 0 ? count.ToString() : "not used";
+        }
+
+        private static string FormatDiagnostics(int candidateCount, StarFilterDiagnostics diagnostics) {
+            return candidateCount >= 0 ? diagnostics.ToString() : "not used";
         }
 
         /// <summary>
@@ -344,16 +348,16 @@ namespace NINA.Plugin.Livestack.Image {
         /// Converts detected stars into alignment candidates with quality filtering and a deterministic score.
         /// </summary>
         /// <remarks>
-        /// Strict mode rejects near-edge, saturated, elongated, and HFR-outlier detections. Loose mode
-        /// keeps the same finite/inside-frame requirements but allows more detections so sparse frames
-        /// still have a chance to align.
+        /// Strict mode rejects near-edge, saturated, and HFR-outlier detections. Loose mode
+        /// keeps the same finite/inside-frame requirements and can fall back to brightness-independent
+        /// scoring when detector brightness metadata would otherwise reject every alignment candidate.
         /// </remarks>
         /// <param name="starList">Raw detector results.</param>
         /// <param name="width">Frame width in pixels.</param>
         /// <param name="height">Frame height in pixels.</param>
         /// <param name="strictFiltering">Whether to apply the full quality gate.</param>
         /// <returns>Quality-scored stars sorted from best to worst.</returns>
-        private List<ScoredStar> BuildScoredStars(List<DetectedStar> starList, int width, int height, bool strictFiltering) {
+        private List<ScoredStar> BuildScoredStars(List<DetectedStar> starList, int width, int height, bool strictFiltering, out StarFilterDiagnostics diagnostics) {
             double centerX = width / 2d;
             double centerY = height / 2d;
 
@@ -368,10 +372,13 @@ namespace NINA.Plugin.Livestack.Image {
                 ? double.PositiveInfinity
                 : Math.Max(0.75d, hfrMad > 0 ? 3d * hfrMad : medianHfr * 0.6d);
 
+            diagnostics = new StarFilterDiagnostics();
             var scoredStars = new List<ScoredStar>(starList.Count);
+            var brightnessFallbackStars = strictFiltering ? null : new List<ScoredStar>(starList.Count);
             for (int i = 0; i < starList.Count; i++) {
                 var star = starList[i];
                 if (!IsFinite(star.Position.X) || !IsFinite(star.Position.Y)) {
+                    diagnostics.InvalidPosition++;
                     continue;
                 }
 
@@ -379,18 +386,32 @@ namespace NINA.Plugin.Livestack.Image {
                 bool insideFrame = pointInsideFrame
                     && (IsWellInsideFrame(star.BoundingBox, width, height) || !strictFiltering);
                 if (!insideFrame) {
+                    diagnostics.OutsideFrame++;
                     continue;
                 }
 
-                if (!IsFinite(star.MaxBrightness) || star.MaxBrightness <= 0 || star.MaxBrightness >= SaturationThreshold) {
+                if (!IsFinite(star.MaxBrightness) || star.MaxBrightness <= 0) {
+                    diagnostics.InvalidBrightness++;
+                    if (!strictFiltering) {
+                        double fallbackScore = ComputeBrightnessFallbackStarScore(star, medianHfr);
+                        fallbackScore *= 1d / (1d + (GetDistanceToCenter(star.Position, centerX, centerY) / Math.Max(width, height)) * 0.1d);
+                        brightnessFallbackStars.Add(new ScoredStar(star.Position, fallbackScore, i));
+                    }
                     continue;
                 }
 
-                if (strictFiltering && IsElongatedBoundingBox(star.BoundingBox)) {
+                if (star.MaxBrightness >= SaturationThreshold) {
+                    diagnostics.SaturatedBrightness++;
+                    if (!strictFiltering) {
+                        double fallbackScore = ComputeBrightnessFallbackStarScore(star, medianHfr);
+                        fallbackScore *= 1d / (1d + (GetDistanceToCenter(star.Position, centerX, centerY) / Math.Max(width, height)) * 0.1d);
+                        brightnessFallbackStars.Add(new ScoredStar(star.Position, fallbackScore, i));
+                    }
                     continue;
                 }
 
                 if (strictFiltering && IsPositiveFinite(star.HFR) && !double.IsNaN(medianHfr) && Math.Abs(star.HFR - medianHfr) > hfrTolerance) {
+                    diagnostics.HfrOutlier++;
                     continue;
                 }
 
@@ -399,7 +420,15 @@ namespace NINA.Plugin.Livestack.Image {
                 scoredStars.Add(new ScoredStar(star.Position, score, i));
             }
 
-            scoredStars.Sort(static (left, right) => right.Score.CompareTo(left.Score));
+            if (!strictFiltering && scoredStars.Count < MinimumAffineStarCount && brightnessFallbackStars?.Count > 0) {
+                diagnostics.BrightnessFallbackCandidates = brightnessFallbackStars.Count;
+                scoredStars.AddRange(brightnessFallbackStars);
+            }
+
+            scoredStars.Sort(static (left, right) => {
+                int scoreComparison = right.Score.CompareTo(left.Score);
+                return scoreComparison != 0 ? scoreComparison : left.SourceIndex.CompareTo(right.SourceIndex);
+            });
             return scoredStars;
         }
 
@@ -408,17 +437,8 @@ namespace NINA.Plugin.Livestack.Image {
             return point.X >= margin && point.Y >= margin && point.X < (width - margin) && point.Y < (height - margin);
         }
 
-        private static bool IsElongatedBoundingBox(System.Drawing.Rectangle bb) {
-            if (bb.Width <= 0 || bb.Height <= 0) {
-                return false;
-            }
-
-            double aspectRatio = Math.Max(bb.Width, bb.Height) / (double)Math.Max(1, Math.Min(bb.Width, bb.Height));
-            return aspectRatio > (1d + MaxAllowedEccentricity);
-        }
-
         /// <summary>
-        /// Scores a detector result by contrast while penalizing elongated or HFR-outlier shapes.
+        /// Scores a detector result by contrast while penalizing HFR outliers.
         /// </summary>
         /// <param name="star">Detected star to score.</param>
         /// <param name="medianHfr">Median HFR for the frame, or <see cref="double.NaN"/> when unavailable.</param>
@@ -429,11 +449,23 @@ namespace NINA.Plugin.Livestack.Image {
                 : Math.Max(1d, star.MaxBrightness);
 
             double brightnessScore = Math.Log10(contrast + 10d);
-            double shapePenalty = 1d;
-            if (star.BoundingBox.Width > 0 && star.BoundingBox.Height > 0) {
-                double aspectRatio = Math.Max(star.BoundingBox.Width, star.BoundingBox.Height) / (double)Math.Max(1, Math.Min(star.BoundingBox.Width, star.BoundingBox.Height));
-                shapePenalty += Math.Max(0d, aspectRatio - 1d) * 0.75d;
+            double hfrPenalty = 1d;
+            if (IsPositiveFinite(star.HFR) && !double.IsNaN(medianHfr) && medianHfr > 0d) {
+                double ratio = star.HFR / medianHfr;
+                if (ratio < 1d) {
+                    ratio = 1d / Math.Max(ratio, 1e-3d);
+                }
+
+                hfrPenalty += Math.Max(0d, ratio - 1d) * 0.75d;
             }
+
+            return brightnessScore / hfrPenalty;
+        }
+
+        private double ComputeBrightnessFallbackStarScore(DetectedStar star, double medianHfr) {
+            double brightnessScore = IsPositiveFinite(star.AverageBrightness)
+                ? Math.Log10(Math.Min(star.AverageBrightness, SaturationThreshold - 1d) + 10d)
+                : 1d;
 
             double hfrPenalty = 1d;
             if (IsPositiveFinite(star.HFR) && !double.IsNaN(medianHfr) && medianHfr > 0d) {
@@ -445,7 +477,7 @@ namespace NINA.Plugin.Livestack.Image {
                 hfrPenalty += Math.Max(0d, ratio - 1d) * 0.75d;
             }
 
-            return brightnessScore / (shapePenalty * hfrPenalty);
+            return brightnessScore / hfrPenalty;
         }
 
         private static bool IsFinite(double value) {
@@ -2533,6 +2565,19 @@ namespace NINA.Plugin.Livestack.Image {
             public Point Position { get; }
             public double Score { get; }
             public int SourceIndex { get; }
+        }
+
+        private struct StarFilterDiagnostics {
+            public int InvalidPosition;
+            public int OutsideFrame;
+            public int InvalidBrightness;
+            public int SaturatedBrightness;
+            public int HfrOutlier;
+            public int BrightnessFallbackCandidates;
+
+            public override string ToString() {
+                return $"invalid-position={InvalidPosition}, outside-frame={OutsideFrame}, invalid-brightness={InvalidBrightness}, saturated-brightness={SaturatedBrightness}, hfr-outlier={HfrOutlier}, brightness-fallback-candidates={BrightnessFallbackCandidates}";
+            }
         }
 
         private struct Match {

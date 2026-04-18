@@ -205,7 +205,7 @@ namespace nina.plugin.livestack.test {
                 Background = 500,
                 HFR = 3.2
             };
-            var trailed = new DetectedStar {
+            var elongatedBox = new DetectedStar {
                 Position = new Point(900, 700),
                 BoundingBox = new System.Drawing.Rectangle(892, 697, 18, 6),
                 MaxBrightness = 19000,
@@ -220,15 +220,61 @@ namespace nina.plugin.livestack.test {
                 HFR = 12.5
             };
 
-            stars.AddRange([saturated, edgeStar, trailed, bloated]);
+            stars.AddRange([saturated, edgeStar, elongatedBox, bloated]);
 
             var selected = transformer.GetStars(stars, 1600, 1200);
 
             Assert.That(selected, Does.Not.Contain(saturated.Position));
             Assert.That(selected, Does.Not.Contain(edgeStar.Position));
-            Assert.That(selected, Does.Not.Contain(trailed.Position));
+            Assert.That(selected, Does.Contain(elongatedBox.Position));
             Assert.That(selected, Does.Not.Contain(bloated.Position));
-            Assert.That(selected.Count, Is.EqualTo(12));
+            Assert.That(selected.Count, Is.EqualTo(13));
+        }
+
+        [Test]
+        public void GetStars_UsesDetectedStarsWhenBrightnessMetadataIsSaturated() {
+            var transformer = ImageTransformer2.Instance;
+            var stars = new List<DetectedStar>();
+
+            for (int i = 0; i < 12; i++) {
+                int x = 300 + ((i % 4) * 700);
+                int y = 240 + ((i / 4) * 520);
+                stars.Add(new DetectedStar {
+                    Position = new Point(x, y),
+                    BoundingBox = new System.Drawing.Rectangle(x - 5, y - 5, 10, 10),
+                    MaxBrightness = 65535,
+                    AverageBrightness = 24000,
+                    Background = 700,
+                    HFR = 2.2 + ((i % 3) * 0.1)
+                });
+            }
+
+            var selected = transformer.GetStars(stars, 3840, 2160);
+
+            Assert.That(selected.Count, Is.GreaterThanOrEqualTo(3));
+        }
+
+        [Test]
+        public void GetStars_UsesDetectedStarsWhenBrightnessMetadataIsNaN() {
+            var transformer = ImageTransformer2.Instance;
+            var stars = new List<DetectedStar>();
+
+            for (int i = 0; i < 12; i++) {
+                int x = 300 + ((i % 4) * 700);
+                int y = 240 + ((i / 4) * 520);
+                stars.Add(new DetectedStar {
+                    Position = new Point(x, y),
+                    BoundingBox = new System.Drawing.Rectangle(x - 5, y - 5, 10, 10),
+                    MaxBrightness = double.NaN,
+                    AverageBrightness = double.NaN,
+                    Background = double.NaN,
+                    HFR = 2.2 + ((i % 3) * 0.1)
+                });
+            }
+
+            var selected = transformer.GetStars(stars, 3840, 2160);
+
+            Assert.That(selected.Count, Is.GreaterThanOrEqualTo(3));
         }
 
         [Test]
