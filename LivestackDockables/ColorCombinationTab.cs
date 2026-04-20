@@ -43,6 +43,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             redBlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
             greenBlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
             blueBlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
+            enableBackgroundExtraction = LivestackMediator.Plugin.DefaultEnableBackgroundExtraction;
+            backgroundExtractionAmount = LivestackMediator.Plugin.DefaultBackgroundExtractionAmount;
             enableGreenDeNoise = LivestackMediator.Plugin.DefaultEnableGreenDeNoise;
             greenDeNoiseAmount = LivestackMediator.Plugin.DefaultGreenDeNoiseAmount;
             imageRotation = 0;
@@ -58,6 +60,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             RedBlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
             GreenBlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
             BlueBlackClipping = LivestackMediator.Plugin.DefaultBlackClipping;
+            EnableBackgroundExtraction = LivestackMediator.Plugin.DefaultEnableBackgroundExtraction;
+            BackgroundExtractionAmount = LivestackMediator.Plugin.DefaultBackgroundExtractionAmount;
             EnableGreenDeNoise = LivestackMediator.Plugin.DefaultEnableGreenDeNoise;
             GreenDeNoiseAmount = LivestackMediator.Plugin.DefaultGreenDeNoiseAmount;
             Downsample = LivestackMediator.Plugin.DefaultDownsample;
@@ -92,6 +96,12 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         [ObservableProperty]
         private double blueBlackClipping;
+
+        [ObservableProperty]
+        private bool enableBackgroundExtraction;
+
+        [ObservableProperty]
+        private double backgroundExtractionAmount;
 
         [ObservableProperty]
         private bool enableGreenDeNoise;
@@ -136,8 +146,16 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
                         var greenData = channelsAlreadyAligned ? green.Stack : AlignTab(red, green);
                         var blueData = channelsAlreadyAligned ? blue.Stack : AlignTab(red, blue);
+                        var redData = red.Stack;
 
-                        using var redBitmap = LivestackMediator.GetImageMath().CreateGrayBitmap(red.Stack, red.Properties.Width, red.Properties.Height);
+                        if (EnableBackgroundExtraction) {
+                            redData = LivestackMediator.GetImageMath().CreateBackgroundExtractedPreview(redData, red.Properties.Width, red.Properties.Height, BackgroundExtractionAmount);
+                            greenData = LivestackMediator.GetImageMath().CreateBackgroundExtractedPreview(greenData, green.Properties.Width, green.Properties.Height, BackgroundExtractionAmount);
+                            blueData = LivestackMediator.GetImageMath().CreateBackgroundExtractedPreview(blueData, blue.Properties.Width, blue.Properties.Height, BackgroundExtractionAmount);
+                            token.ThrowIfCancellationRequested();
+                        }
+
+                        using var redBitmap = LivestackMediator.GetImageMath().CreateGrayBitmap(redData, red.Properties.Width, red.Properties.Height);
                         var filter = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(redBitmap.Median, redBitmap.MedianAbsoluteDeviation, red.Properties.BitDepth), RedStretchFactor, RedBlackClipping, PixelFormats.Gray16);
                         filter.ApplyInPlace(redBitmap.Bitmap);
                         token.ThrowIfCancellationRequested();
@@ -176,8 +194,6 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                         NeedsRefresh = false;
                     } finally {
                         Locked = false;
-                        GC.Collect();
-                        GC.WaitForPendingFinalizers();
                     }
                 }, token);
             } catch { }

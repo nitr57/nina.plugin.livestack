@@ -1,5 +1,18 @@
 # Livestack
 
+## 1.1.3.0
+- Fixed live-stack alignment star selection when detector brightness metadata is unusable.
+    - Alignment now falls back to valid detected star centroids when MaxBrightness is saturated, invalid, or NaN, instead of producing zero filtered stars.
+- Improved “not enough alignment stars” logging with reject-reason diagnostics for invalid position, outside frame, invalid brightness, saturated brightness, HFR outlier, and fallback candidate count.
+
+## 1.1.2.0
+- Added more logging for failure cases
+- Added experimental background extraction for stack previews, using automatic sample boxes, global rejection, and polynomial background modeling. This affects preview rendering only.
+
+## 1.1.1.0
+- Improved star selection consistency so reference stars are more likely to match across frames
+- Added more robust star matching for sparse fields, very dense fields, and meridian-flip-like upside-down frames
+
 ## 1.1.0.0
 - Saving and reading FITS files now use the CFITSIO diskfile APIs so square or curly bracket characters in file names work correctly
 - Image alignment now uses RANSAC to improve robustness against outliers

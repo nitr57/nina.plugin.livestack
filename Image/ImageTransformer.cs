@@ -126,6 +126,16 @@ namespace NINA.Plugin.Livestack.Image {
             return transformedImageData;
         }
 
+        public void ApplyAffineTransformationInto(float[] sourceImageData, float[] destinationImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            var transformedImageData = ApplyAffineTransformation(sourceImageData, width, height, affineMatrix, flippedImage);
+            Array.Copy(transformedImageData, destinationImageData, transformedImageData.Length);
+        }
+
+        public void ApplyAffineTransformationAndStack(float[] sourceImageData, float[] stackImageData, int stackImageCount, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            var transformedImageData = ApplyAffineTransformation(sourceImageData, width, height, affineMatrix, flippedImage);
+            ImageMath.Instance.SequentialStack(transformedImageData, stackImageData, stackImageCount);
+        }
+
         public float[] ApplyAffineTransformation(ushort[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             // Create a new output array to hold the transformed image
             float[] transformedImageData = new float[width * height];
@@ -158,6 +168,16 @@ namespace NINA.Plugin.Livestack.Image {
             return transformedImageData;
         }
 
+        public void ApplyAffineTransformationInto(ushort[] sourceImageData, float[] destinationImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            var transformedImageData = ApplyAffineTransformation(sourceImageData, width, height, affineMatrix, flippedImage);
+            Array.Copy(transformedImageData, destinationImageData, transformedImageData.Length);
+        }
+
+        public void ApplyAffineTransformationAndStack(ushort[] sourceImageData, float[] stackImageData, int stackImageCount, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            var transformedImageData = ApplyAffineTransformation(sourceImageData, width, height, affineMatrix, flippedImage);
+            ImageMath.Instance.SequentialStack(transformedImageData, stackImageData, stackImageCount);
+        }
+
         public ushort[] ApplyAffineTransformationAsUshort(float[] sourceImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
             // Create a new output array to hold the transformed image
             ushort[] transformedImageData = new ushort[width * height];
@@ -188,6 +208,11 @@ namespace NINA.Plugin.Livestack.Image {
             }
 
             return transformedImageData;
+        }
+
+        public void ApplyAffineTransformationAsUshortInto(float[] sourceImageData, ushort[] destinationImageData, int width, int height, double[,] affineMatrix, bool flippedImage = false) {
+            var transformedImageData = ApplyAffineTransformationAsUshort(sourceImageData, width, height, affineMatrix, flippedImage);
+            Array.Copy(transformedImageData, destinationImageData, transformedImageData.Length);
         }
 
         public bool IsFlippedImage(double[,] affineMatrix) {
