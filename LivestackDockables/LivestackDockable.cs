@@ -572,9 +572,7 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         }
 
         private bool ShouldRefreshColorTab(ColorCombinationTab colorTab) {
-            return ReferenceEquals(SelectedTab, colorTab)
-                || colorTab.StackImage == null
-                || LivestackMediator.Plugin.SaveStackedLights;
+            return true;
         }
 
         private float[] CalibrateFrame(LiveStackItem item) {
