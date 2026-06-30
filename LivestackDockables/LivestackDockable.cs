@@ -432,8 +432,16 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             }
             var debayeredImage = ImageUtility.Debayer(image, System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, true, false, bayerPattern);
 
+            // N.I.N.A.'s debayer exposes the channels using a legacy inverted layout where
+            // DebayeredData.Red actually holds the blue plane and DebayeredData.Blue holds the red plane
+            // (see BayerFilter16bpp.ExtractLrgba and Accord.Imaging.RGB with R=2, G=1, B=0).
+            // Map them back to true colors so the R/G/B tabs are not swapped (R was showing B data).
+            var trueRedChannel = debayeredImage.Data.Blue;
+            var trueGreenChannel = debayeredImage.Data.Green;
+            var trueBlueChannel = debayeredImage.Data.Red;
+
             StatusUpdate("Aligning frame - red channel", item);
-            var redChannelData = imageDataFactory.CreateBaseImageData(debayeredImage.Data.Red, item.Width, item.Height, redTab.Properties.BitDepth, false, meta);
+            var redChannelData = imageDataFactory.CreateBaseImageData(trueRedChannel, item.Width, item.Height, redTab.Properties.BitDepth, false, meta);
             // We only need to detect the stars in one channel for OSC. The others should match.
             var channelStatistics = await redChannelData.Statistics;
             var channelRender = redChannelData.RenderImage();
@@ -480,33 +488,33 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                     stars = LivestackMediator.GetImageMath().Flip(stars, item.Width, item.Height);
                     affineTransformationMatrix = LivestackMediator.GetImageTransformer().ComputeAffineTransformation(stars, redTab.ReferenceStars);
                 }
-                redTab.AddTransformedImage(debayeredImage.Data.Red, affineTransformationMatrix, flipped);
+                redTab.AddTransformedImage(trueRedChannel, affineTransformationMatrix, flipped);
             }
 
             StatusUpdate("Aligning frame - green channel", item);
             var greenTab = Tabs.FirstOrDefault(x => x is LiveStackTab && x.Filter == LiveStackBag.GREEN_OSC && x.Target == item.Target) as LiveStackTab;
             if (greenTab == null) {
                 var bag = new LiveStackBag(item.Target, LiveStackBag.GREEN_OSC, imageProperties, item.MetaData, stars);
-                bag.Add(debayeredImage.Data.Green.ToFloatArray());
+                bag.Add(trueGreenChannel.ToFloatArray());
                 greenTab = new LiveStackTab(profileService, bag);
                 Tabs.Add(greenTab);
             } else if (pushedReference) {
-                greenTab.ForcePushReference(imageProperties, stars, debayeredImage.Data.Green.ToFloatArray());
+                greenTab.ForcePushReference(imageProperties, stars, trueGreenChannel.ToFloatArray());
             } else {
-                greenTab.AddTransformedImage(debayeredImage.Data.Green, affineTransformationMatrix, flipped);
+                greenTab.AddTransformedImage(trueGreenChannel, affineTransformationMatrix, flipped);
             }
 
             StatusUpdate("Aligning frame - blue channel", item);
             var blueTab = Tabs.FirstOrDefault(x => x is LiveStackTab && x.Filter == LiveStackBag.BLUE_OSC && x.Target == item.Target) as LiveStackTab;
             if (blueTab == null) {
                 var bag = new LiveStackBag(item.Target, LiveStackBag.BLUE_OSC, imageProperties, item.MetaData, stars);
-                bag.Add(debayeredImage.Data.Blue.ToFloatArray());
+                bag.Add(trueBlueChannel.ToFloatArray());
                 blueTab = new LiveStackTab(profileService, bag);
                 Tabs.Add(blueTab);
             } else if (pushedReference) {
-                blueTab.ForcePushReference(imageProperties, stars, debayeredImage.Data.Blue.ToFloatArray());
+                blueTab.ForcePushReference(imageProperties, stars, trueBlueChannel.ToFloatArray());
             } else {
-                blueTab.AddTransformedImage(debayeredImage.Data.Blue, affineTransformationMatrix, flipped);
+                blueTab.AddTransformedImage(trueBlueChannel, affineTransformationMatrix, flipped);
             }
 
             await redTab.Refresh(token);

@@ -288,10 +288,12 @@ namespace NINA.Plugin.Livestack.Image {
                     ushort* rowRGB = ptrRGB + y * strideRGB;
 
                     for (int x = 0; x < width; x++) {
-                        // Assign grayscale values to the RGB channels
-                        rowRGB[x * 3] = rowGray1[x];     // Red channel
-                        rowRGB[x * 3 + 1] = rowGray2[x]; // Green channel
-                        rowRGB[x * 3 + 2] = rowGray3[x]; // Blue channel
+                        // GDI+ Format48bppRgb stores channels in B,G,R order (Accord.Imaging.RGB: R=2, G=1, B=0),
+                        // which is the same layout BayerFilter16bpp writes and ImageUtility.ConvertBitmap(..., Rgb48)
+                        // expects. Place red/blue accordingly so the combined image is not R/B swapped on display.
+                        rowRGB[x * 3] = rowGray3[x];     // Blue channel  (RGB.B = 0)
+                        rowRGB[x * 3 + 1] = rowGray2[x]; // Green channel (RGB.G = 1)
+                        rowRGB[x * 3 + 2] = rowGray1[x]; // Red channel   (RGB.R = 2)
                     }
                 }
             }
