@@ -22,6 +22,17 @@ namespace NINA.Plugin.Livestack {
         [DllImport("libcfitsio.so", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "ffdkinit")]
         public static extern int fits_create_diskfile(out nint fptr, [MarshalAs(UnmanagedType.LPStr)] string filename, out int status);
 
+        // int ffcrim(fitsfile *fptr, int bitpix, int naxis, long *naxes, int *status);
+        // Own binding instead of CfitsioNative.fits_create_img: naxes is C long (8 bytes on LP64),
+        // and the core's managed signature changed from int[] to CLong[]; binding here keeps the
+        // plugin independent of which NINA.Image build is installed.
+        [DllImport("libcfitsio.so", CallingConvention = CallingConvention.Cdecl, EntryPoint = "ffcrim")]
+        private static extern int _fits_create_img(nint fptr, int bitpix, int naxis, CLong[] naxes, out int status);
+
+        public static int fits_create_img(nint fptr, NINA.Image.FileFormat.FITS.CfitsioNative.BITPIX bitpix, int width, int height, out int status) {
+            return _fits_create_img(fptr, (int)bitpix, 2, new[] { new CLong(width), new CLong(height) }, out status);
+        }
+
         [DllImport("libcfitsio.so", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "ffdkopn")]
         public static extern int fits_open_diskfile(out nint fptr, [MarshalAs(UnmanagedType.LPStr)] string filename, int iomode, out int status);
 

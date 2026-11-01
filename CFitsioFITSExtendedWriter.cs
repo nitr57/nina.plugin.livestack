@@ -26,28 +26,28 @@ namespace NINA.Plugin.Livestack {
         }
 
         public CFitsioFITSExtendedWriter(string filePath, ushort[] data, int width, int height, COMPRESSION compression = COMPRESSION.NOCOMPRESS) : this(filePath, compression) {
-            CfitsioNative.fits_create_img(filePtr, CfitsioNative.BITPIX.USHORT_IMG, 2, new int[] { width, height }, out var status);
+            CFitsioExtensions.fits_create_img(filePtr, CfitsioNative.BITPIX.USHORT_IMG, width, height, out var status);
             CheckStatus("fits_create_img", status);
             CfitsioNative.fits_write_img(filePtr, CfitsioNative.DATATYPE.TUSHORT, 1, width * height, data, out status);
             CheckStatus("fits_write_img", status);
         }
 
         public CFitsioFITSExtendedWriter(string filePath, uint[] data, int width, int height, COMPRESSION compression = COMPRESSION.NOCOMPRESS) : this(filePath, compression) {
-            CfitsioNative.fits_create_img(filePtr, CfitsioNative.BITPIX.ULONG_IMG, 2, new int[] { width, height }, out var status);
+            CFitsioExtensions.fits_create_img(filePtr, CfitsioNative.BITPIX.ULONG_IMG, width, height, out var status);
             CheckStatus("fits_create_img", status);
             CfitsioNative.fits_write_img_uint(filePtr, CfitsioNative.DATATYPE.TUINT, 1, width * height, data, out status);
             CheckStatus("fits_write_img", status);
         }
 
         public CFitsioFITSExtendedWriter(string filePath, int[] data, int width, int height, COMPRESSION compression = COMPRESSION.NOCOMPRESS) : this(filePath, compression) {
-            CfitsioNative.fits_create_img(filePtr, CfitsioNative.BITPIX.LONG_IMG, 2, new int[] { width, height }, out var status);
+            CFitsioExtensions.fits_create_img(filePtr, CfitsioNative.BITPIX.LONG_IMG, width, height, out var status);
             CheckStatus("fits_create_img", status);
             CfitsioNative.fits_write_img_int(filePtr, CfitsioNative.DATATYPE.TINT, 1, width * height, data, out status);
             CheckStatus("fits_write_img", status);
         }
 
         public CFitsioFITSExtendedWriter(string filePath, float[] data, int width, int height, COMPRESSION compression = COMPRESSION.NOCOMPRESS) : this(filePath, compression) {
-            CfitsioNative.fits_create_img(filePtr, CfitsioNative.BITPIX.FLOAT_IMG, 2, new int[] { width, height }, out var status);
+            CFitsioExtensions.fits_create_img(filePtr, CfitsioNative.BITPIX.FLOAT_IMG, width, height, out var status);
             CheckStatus("fits_create_img", status);
             CfitsioNative.fits_write_img_float(filePtr, CfitsioNative.DATATYPE.TFLOAT, 1, width * height, data, out status);
             CheckStatus("fits_write_img", status);
