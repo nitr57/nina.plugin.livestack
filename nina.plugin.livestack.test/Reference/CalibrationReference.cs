@@ -1,20 +1,16 @@
-﻿using NINA.Core.Enum;
-using NINA.Equipment.Interfaces.Mediator;
-using NINA.Image.Interfaces;
-using NINA.Profile.Interfaces;
-using System.Threading.Tasks;
-using System.Threading;
+#nullable disable
 using NINA.Core.Utility;
-using System.Collections.Generic;
-using NINA.Image.ImageData;
-using System.Linq;
-using NINA.Profile;
+using NINA.Plugin.Livestack.Image;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
-namespace NINA.Plugin.Livestack.Image {
+// Historical scalar implementation, retained only as an independent calibration oracle.
+// This file is also linked into the benchmark project; it is not part of the plugin.
+namespace NINA.Plugin.Livestack.TestSupport {
 
-    public class CalibrationManager : ICalibrationManager {
+    internal sealed class CalibrationReference : IDisposable {
 
         internal class CalibrationMaster : IDisposable {
 
@@ -48,13 +44,19 @@ namespace NINA.Plugin.Livestack.Image {
         public IList<CalibrationFrameMeta> BiasLibrary { get; } = new List<CalibrationFrameMeta>();
         private Dictionary<CalibrationFrameMeta, CalibrationMaster> masterCache = new Dictionary<CalibrationFrameMeta, CalibrationMaster>();
 
-        public CalibrationManager() {
+        public CalibrationReference() {
         }
 
         public void RegisterBiasMaster(CalibrationFrameMeta calibrationFrameMeta) {
             if (!BiasLibrary.Any(x => x.Equals(calibrationFrameMeta))) {
                 BiasLibrary.Add(calibrationFrameMeta);
             }
+        }
+
+        public void ClearRegisteredMasters() {
+            BiasLibrary.Clear();
+            DarkLibrary.Clear();
+            FlatLibrary.Clear();
         }
 
         public void RegisterDarkMaster(CalibrationFrameMeta calibrationFrameMeta) {
@@ -101,13 +103,13 @@ namespace NINA.Plugin.Livestack.Image {
             if (DarkLibrary?.Count > 0) {
                 meta = DarkLibrary.FirstOrDefault(x => x.Gain == gain && x.Offset == offset && x.ExposureTime == exposureTime && x.Width == width && x.Height == height);
                 if (meta == null) {
-                    meta = DarkLibrary.FirstOrDefault(x => x.Gain == gain && x.Offset == -1 && x.Width == width && x.Height == height);
+                    meta = DarkLibrary.FirstOrDefault(x => x.Gain == gain && x.Offset == -1 && x.ExposureTime == exposureTime && x.Width == width && x.Height == height);
                 }
                 if (meta == null) {
-                    meta = DarkLibrary.FirstOrDefault(x => x.Gain == -1 && x.Offset == offset && x.Width == width && x.Height == height);
+                    meta = DarkLibrary.FirstOrDefault(x => x.Gain == -1 && x.Offset == offset && x.ExposureTime == exposureTime && x.Width == width && x.Height == height);
                 }
                 if (meta == null) {
-                    meta = DarkLibrary.FirstOrDefault(x => x.Gain == -1 && x.Offset == -1 && x.Width == width && x.Height == height);
+                    meta = DarkLibrary.FirstOrDefault(x => x.Gain == -1 && x.Offset == -1 && x.ExposureTime == exposureTime && x.Width == width && x.Height == height);
                 }
             }
             if (meta == null) {

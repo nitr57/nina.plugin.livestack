@@ -18,6 +18,8 @@ using System.IO;
 using Microsoft.Win32;
 using System.Windows.Input;
 
+using NINA.Plugin.Livestack.Image;
+
 namespace NINA.Plugin.Livestack {
 
     /// <summary>
@@ -58,11 +60,16 @@ namespace NINA.Plugin.Livestack {
             OpenWorkingFolderDiagCommand = new GalaSoft.MvvmLight.Command.RelayCommand(OpenWorkingFolderDiag);
         }
 
-        public override Task Teardown() {
+        public override async Task Teardown() {
+            if (LivestackMediator.LiveStackDockable != null) {
+                await LivestackMediator.LiveStackDockable.StopAsync().ConfigureAwait(false);
+                LivestackMediator.LiveStackDockable.Dispose();
+            }
+            ImageBufferPool.Shared.Trim();
             // Make sure to unregister an event when the object is no longer in use. Otherwise garbage collection will be prevented.
             profileService.ProfileChanged -= ProfileService_ProfileChanged;
 
-            return base.Teardown();
+            await base.Teardown().ConfigureAwait(false);
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {

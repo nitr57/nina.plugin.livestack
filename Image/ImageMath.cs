@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Windows;
 using System.Drawing.Imaging;
 using System.Drawing;
@@ -24,44 +25,12 @@ namespace NINA.Plugin.Livestack.Image {
         private ImageMath() {
         }
 
-        public void SequentialStack(float[] image, float[] stack, int stackImageCount) {
-            int length = stack.Length;
-            float nextCount = stackImageCount + 1f;
-
-            if (!System.Numerics.Vector.IsHardwareAccelerated || length < System.Numerics.Vector<float>.Count) {
-                for (int i = 0; i < length; i++) {
-                    stack[i] = (stackImageCount * stack[i] + image[i]) / nextCount;
-                }
-                return;
-            }
-
-            int simd = System.Numerics.Vector<float>.Count;
-            int last = length - (length % simd);
-            int index = 0;
-
-            var currentCount = new System.Numerics.Vector<float>(stackImageCount);
-            var nextCountVector = new System.Numerics.Vector<float>(nextCount);
-
-            for (; index < last; index += simd) {
-                var currentStack = new System.Numerics.Vector<float>(stack, index);
-                var currentImage = new System.Numerics.Vector<float>(image, index);
-                (((currentStack * currentCount) + currentImage) / nextCountVector).CopyTo(stack, index);
-            }
-
-            for (; index < length; index++) {
-                stack[index] = (stackImageCount * stack[index] + image[index]) / nextCount;
-            }
-        }
-
-        public List<Accord.Point> Flip(List<Accord.Point> points, int width, int height) {
-            var l = new List<Accord.Point>();
-            foreach (var point in points) {
-                l.Add(new Accord.Point(width - 1 - point.X, height - 1 - point.Y));
-            }
-            return l;
-        }
-
         public float[] PercentileClipping(List<CFitsioFITSReader> images, double lowerPercentile, double upperPercentile) {
+            return PercentileClipping(images, lowerPercentile, upperPercentile, CancellationToken.None);
+        }
+
+        public float[] PercentileClipping(List<CFitsioFITSReader> images, double lowerPercentile, double upperPercentile, CancellationToken token) {
+            token.ThrowIfCancellationRequested();
             if (images.Count == 0) { return []; }
 
             float[] imageMedian = new float[images.Count];
@@ -95,6 +64,7 @@ namespace NINA.Plugin.Livestack.Image {
                 }
 
                 for (int idxRow = 0; idxRow < height; idxRow++) {
+                    token.ThrowIfCancellationRequested();
                     for (int i = 0; i < numberOfImages; i++) {
                         images[i].ReadPixelRowAsFloat(idxRow, rowBuffers[i]);
                     }
@@ -170,13 +140,27 @@ namespace NINA.Plugin.Livestack.Image {
                 ushort* ptrOutput = (ushort*)outputData.Scan0;
 
                 for (int y = 0; y < newHeight; y++) {
+                    int startY = y * factor;
+                    if (factor == 2 && startY + 1 < originalHeight) {
+                        ushort* top = ptrInput + startY * inputStride;
+                        ushort* bottom = top + inputStride;
+                        ushort* outputRow = ptrOutput + y * outputStride;
+                        int pairs = originalWidth / 2;
+                        for (int x = 0; x < pairs; x++) {
+                            int left = x * 2;
+                            outputRow[x] = (ushort)((top[left] + top[left + 1] + bottom[left] + bottom[left + 1]) / 4);
+                        }
+                        if ((originalWidth & 1) != 0) {
+                            outputRow[pairs] = (ushort)((top[originalWidth - 1] + bottom[originalWidth - 1]) / 2);
+                        }
+                        continue;
+                    }
                     for (int x = 0; x < newWidth; x++) {
                         int sum = 0;
                         int count = 0;
 
                         // Calculate the starting coordinates in the original image
                         int startX = x * factor;
-                        int startY = y * factor;
 
                         // Iterate over the block of pixels in the original image
                         for (int dy = 0; dy < factor; dy++) {
@@ -206,11 +190,15 @@ namespace NINA.Plugin.Livestack.Image {
         }
 
         public void RemoveHotPixelOutliers(float[] imageData, int width, int height, int neighborSize = 1, double outlierFactor = 10.0) {
-            int windowSize = (2 * neighborSize + 1) * (2 * neighborSize + 1) - 1; // Total neighbors excluding the center pixel
-            float[] meanBuffer = new float[width * height];
-            float[] stdDevBuffer = new float[width * height];
+            ArgumentNullException.ThrowIfNull(imageData);
+            ArgumentOutOfRangeException.ThrowIfNegative(neighborSize);
+            if (imageData.Length != AffineResampler.GetLength(width, height)) {
+                throw new ArgumentException("Pixels must match the frame dimensions.", nameof(imageData));
+            }
+            using ImageBufferLease corrected = ImageBufferPool.Shared.Rent(imageData.Length);
+            float[] output = corrected.Buffer;
 
-            // Precompute neighborhood statistics
+            // Read only the original frame until every neighborhood has been evaluated.
             Parallel.For(0, height, y => {
                 for (int x = 0; x < width; x++) {
                     int index = y * width + x;
@@ -236,23 +224,10 @@ namespace NINA.Plugin.Livestack.Image {
                     float variance = sumSquared / count - mean * mean;
                     float stdDev = (float)Math.Sqrt(Math.Max(variance, 0f)); // Avoid negative variance due to floating-point precision
 
-                    meanBuffer[index] = mean;
-                    stdDevBuffer[index] = stdDev;
+                    output[index] = Math.Abs(imageData[index] - mean) > outlierFactor * stdDev ? mean : imageData[index];
                 }
             });
-
-            // Identify and replace outliers
-            Parallel.For(0, height, y => {
-                for (int x = 0; x < width; x++) {
-                    int index = y * width + x;
-                    float mean = meanBuffer[index];
-                    float stdDev = stdDevBuffer[index];
-
-                    if (Math.Abs(imageData[index] - mean) > outlierFactor * stdDev) {
-                        imageData[index] = mean; // Replace with mean
-                    }
-                }
-            });
+            output.CopyTo(imageData, 0);
         }
 
         public Bitmap MergeGray16ToRGB48(Bitmap red, Bitmap green, Bitmap blue) {
@@ -327,7 +302,7 @@ namespace NINA.Plugin.Livestack.Image {
                 ushort* ptr = (ushort*)bitmapData.Scan0;
                 for (int y = 0; y < height; y++) {
                     for (int x = 0; x < width; x++) {
-                        var pixel = (ushort)(data[y * width + x] * ushort.MaxValue);
+                        ushort pixel = Extensions.ToUShort(data[y * width + x]);
                         pixelValueCounts[pixel]++;
                         ptr[y * stride + x] = pixel;
                     }
@@ -409,33 +384,37 @@ namespace NINA.Plugin.Livestack.Image {
         }
 
         public float[] CreateBackgroundExtractedPreview(float[] data, int width, int height, double amount) {
+            float[] output = GC.AllocateUninitializedArray<float>(AffineResampler.GetLength(width, height));
+            CreateBackgroundExtractedPreviewInto(data, output, width, height, amount);
+            return output;
+        }
+
+        public void CreateBackgroundExtractedPreviewInto(float[] data, float[] output, int width, int height, double amount) {
             if (width <= 0) {
                 throw new ArgumentOutOfRangeException(nameof(width), "Width must be greater than zero.");
             }
             if (height <= 0) {
                 throw new ArgumentOutOfRangeException(nameof(height), "Height must be greater than zero.");
             }
-            if (data.Length != width * height) {
+            if (data.Length != checked(width * height) || output.Length != data.Length) {
                 throw new ArgumentException("Data length does not match width and height dimensions.", nameof(data));
             }
 
-            float[] output = new float[data.Length];
             float strength = (float)Math.Clamp(amount, 0d, 1d);
             if (strength <= 0f) {
                 Array.Copy(data, output, data.Length);
-                return output;
+                return;
             }
 
             List<BackgroundSample> samples = GenerateAutomaticBackgroundSamples(data, width, height);
             int degree = GetBestPolynomialDegree(samples.Count);
             if (degree == 0 || !TryFitAbePolynomial(samples, degree, out double[] coefficients, out float globalBackground)) {
                 Array.Copy(data, output, data.Length);
-                return output;
+                return;
             }
 
             ApplyPolynomialBackgroundCorrection(data, output, width, height, coefficients, degree, globalBackground, strength);
 
-            return output;
         }
 
         private readonly struct BackgroundSample {

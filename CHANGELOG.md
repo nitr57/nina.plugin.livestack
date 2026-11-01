@@ -1,9 +1,40 @@
 # Livestack
 
+## 1.1.5.0
+
+- Fixed N.I.N.A. hanging when closing the application while live stacking is active.
+- Reduced memory use when aligning images with many stars.
+- Reduced unnecessary processing that could slow down existing stacks.
+- Better protection against partially updated color stacks when memory is low.
+- Improved alignment when different stars are detected between exposures.
+- Reduced alignment work when the image position has changed little since the previous exposure.
+
+## 1.1.4.2
+
+- Fixed delays when saving images during live stacking, especially with large camera frames.
+
+## 1.1.4.1
+
+- Fixed dark master selection when gain or offset is set to "Ignore" so the exposure time must still match.
+- Fixed automatic color-pattern detection for connected one-shot color cameras.
+- Fixed bright pixels turning dark in stack previews.
+- Stopping or restarting live stacking now waits for incoming frames to finish cleanup, preventing leftover temporary files or frames carrying over into a new session.
+- Quality gates now follow the active N.I.N.A. profile correctly.
+- Flat stacking now keeps repeated sequence blocks separate and correctly handles cancellation and the "Wait for flat stack?" option.
+- Faster calibration and color preview updates without keeping extra full-size images in memory.
+- Fixed growing memory use in the replay viewer when processing many frames or resetting stacks.
+- Added a standalone replay viewer to test saved captures without opening N.I.N.A., with step-by-step stacking and alignment feedback.
+- Better protection against poor alignment matches that could stretch or skew an image and spoil the stack.
+- Stacking now requires at least eight usable stars and skips frames with incompatible camera settings to protect the current stack.
+- Improved image detail when aligning small shifts and corrected darkening along edges where frames do not fully overlap.
+- Reduced memory usage during calibration, stacking and preview updates, especially with large images.
+- Preview updates recover more reliably after cancellation or failure while keeping the last successful preview visible.
+- Closing a stack also removes color combinations that depend on it.
+
 ## 1.1.3.0
 - Fixed live-stack alignment star selection when detector brightness metadata is unusable.
     - Alignment now falls back to valid detected star centroids when MaxBrightness is saturated, invalid, or NaN, instead of producing zero filtered stars.
-- Improved “not enough alignment stars” logging with reject-reason diagnostics for invalid position, outside frame, invalid brightness, saturated brightness, HFR outlier, and fallback candidate count.
+- Improved "not enough alignment stars" logging with reject-reason diagnostics for invalid position, outside frame, invalid brightness, saturated brightness, HFR outlier, and fallback candidate count.
 
 ## 1.1.2.0
 - Added more logging for failure cases

@@ -24,6 +24,17 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
     public partial class LiveStackTab : BaseVM, IStackTab {
         private LiveStackBag bag;
+        private LiveStackPreview.Settings? renderedSettings;
+        private long renderedRevision;
+
+        partial void OnStackImageChanged(BitmapSource value) {
+            renderedSettings = null;
+        }
+
+        internal BitmapSource GetRenderedPreview(LiveStackPreview.Settings settings) {
+            return renderedSettings == settings && renderedRevision == bag.Revision && (renderedRevision & 1) == 0
+                ? StackImage : null;
+        }
 
         [ObservableProperty]
         private BitmapSource stackImage;
@@ -63,6 +74,8 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         public List<Accord.Point> ReferenceStars => bag.ReferenceImageStars;
 
+        public AlignmentStarCatalog ReferenceCatalog => bag.ReferenceCatalog;
+
         public float[] Stack => bag.Stack;
 
         public ImageProperties Properties => bag.Properties;
@@ -90,31 +103,27 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
         }
 
         [RelayCommand]
-        public async Task Refresh(CancellationToken token) {
-            try {
-                await Task.Run(() => {
-                    StackImage = Render(StretchFactor, BlackClipping, EnableBackgroundExtraction, BackgroundExtractionAmount, Downsample);
-                    StackCount = bag.ImageCount;
-                }, token);
-            } catch {
-            }
+        public Task Refresh(CancellationToken token) {
+            return LiveStackPreview.RenderAsync(() => {
+                LiveStackPreview.Settings settings = new(StretchFactor, BlackClipping, EnableBackgroundExtraction, BackgroundExtractionAmount, Downsample);
+                long revision = bag.Revision;
+                BitmapSource source = Render(settings.StretchFactor, settings.BlackClipping, settings.EnableBackgroundExtraction, settings.BackgroundExtractionAmount, settings.Downsample, token);
+                token.ThrowIfCancellationRequested();
+                StackImage = source;
+                renderedRevision = revision;
+                renderedSettings = settings;
+                StackCount = bag.ImageCount;
+            }, token);
         }
 
-        private BitmapSource Render(double stretchFactor, double blackClipping, bool enableBackgroundExtraction, double backgroundExtractionAmount, int downsample) {
-            float[] previewData = enableBackgroundExtraction
-                ? LivestackMediator.GetImageMath().CreateBackgroundExtractedPreview(Stack, Properties.Width, Properties.Height, backgroundExtractionAmount)
-                : Stack;
-            using var bmp = LivestackMediator.GetImageMath().CreateGrayBitmap(previewData, Properties.Width, Properties.Height);
-            var filter = ImageUtility.GetColorRemappingFilter(new MedianOnlyStatistics(bmp.Median, bmp.MedianAbsoluteDeviation, Properties.BitDepth), stretchFactor, blackClipping, PixelFormats.Gray16);
-            filter.ApplyInPlace(bmp.Bitmap);
-
-            BitmapSource source;
-            if (downsample > 1) {
-                using var downsampledBmp = LivestackMediator.GetImageMath().DownsampleGray16(bmp.Bitmap, downsample);
-                source = ImageUtility.ConvertBitmap(downsampledBmp);
-            } else {
-                source = ImageUtility.ConvertBitmap(bmp.Bitmap);
+        private BitmapSource Render(double stretchFactor, double blackClipping, bool enableBackgroundExtraction, double backgroundExtractionAmount, int downsample, CancellationToken token) {
+            using ImageBufferLease preview = enableBackgroundExtraction ? ImageBufferPool.Shared.Rent(Stack.Length) : null;
+            if (preview != null) {
+                LivestackMediator.GetImageMath().CreateBackgroundExtractedPreviewInto(Stack, preview.Buffer, Properties.Width, Properties.Height, backgroundExtractionAmount);
             }
+            float[] previewData = preview?.Buffer ?? Stack;
+            using var bitmap = LiveStackPreview.CreateStretchedBitmap(previewData, Properties, stretchFactor, blackClipping, downsample, token);
+            BitmapSource source = ImageUtility.ConvertBitmap(bitmap.Bitmap);
             source.Freeze();
             return source;
         }
@@ -142,8 +151,29 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
             }
         }
 
-        public void AddImage(float[] data) {
-            bag.Add(data);
+        public bool IsCompatible(ImageProperties properties) {
+            return bag.IsCompatible(properties);
+        }
+
+        internal AlignmentResult AlignAndAdd(ImageBufferLease data, ImageProperties properties, List<Accord.Point> stars, CancellationToken token) {
+            return bag.AlignAndAdd(data, properties, stars, token);
+        }
+
+        public AlignmentResult AlignAndAdd(float[] data, ImageProperties properties, List<Accord.Point> stars, CancellationToken token) {
+            return bag.AlignAndAdd(data, properties, stars, token);
+        }
+
+        public AlignmentResult AlignAndAdd(ushort[] data, ImageProperties properties, List<Accord.Point> stars, CancellationToken token) {
+            return bag.AlignAndAdd(data, properties, stars, token);
+        }
+
+        internal AlignmentResult AlignAndAdd(ImageBufferLease data, ImageProperties properties, AlignmentStarCatalog stars, CancellationToken token) {
+            return bag.AlignAndAdd(data, properties, stars, token);
+        }
+
+        internal AlignmentResult AlignAndAddOsc(LiveStackTab green, LiveStackTab blue, ushort[] redPixels, ushort[] greenPixels, ushort[] bluePixels,
+                ImageProperties properties, AlignmentStarCatalog stars, CancellationToken token) {
+            return bag.AlignAndAddOsc(green.bag, blue.bag, redPixels, greenPixels, bluePixels, properties, stars, token);
         }
 
         public void AddTransformedImage(float[] data, double[,] affineMatrix, bool flippedImage) {
@@ -152,10 +182,6 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
 
         public void AddTransformedImage(ushort[] data, double[,] affineMatrix, bool flippedImage) {
             bag.AddTransformed(data, affineMatrix, flippedImage);
-        }
-
-        public void ForcePushReference(ImageProperties properties, List<Accord.Point> referenceStars, float[] stack) {
-            bag.ForcePushReference(properties, referenceStars, stack);
         }
 
         public void SaveToDisk() {
