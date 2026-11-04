@@ -326,14 +326,13 @@ namespace NINA.Plugin.Livestack.LivestackDockables {
                 var theImageArrayData = imageDataFactory.CreateBaseImageData(theImageArray.Buffer.ToUShortArray(), item.Width, item.Height, 16, false, meta);
                 theImageArray.Dispose();
                 var image = theImageArrayData.RenderBitmapSource();
-                channels = ImageUtility.Debayer(image, System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, true, false, bayerPattern).Data;
-            }
+                var debayered = ImageUtility.Debayer(image, System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, true, false, bayerPattern).Data;
 
-            // N.I.N.A.'s debayer exposes the channels using a legacy inverted layout where
-            // DebayeredData.Red actually holds the blue plane and DebayeredData.Blue holds the red plane
-            // (see BayerFilter16bpp.ExtractLrgba and Accord.Imaging.RGB with R=2, G=1, B=0).
-            // Map them back to true colors so the R/G/B tabs are not swapped (R was showing B data).
-            channels = new LRGBArrays(channels.Lum, channels.Blue, channels.Green, channels.Red);
+                // pins' System.Windows.Compat BayerFilter rotates the Bayer pattern by 180°, so the
+                // Red plane of ImageUtility.Debayer holds the blue sites and the Blue plane the red ones.
+                // BayerChannelExtractor reads the raw buffer and is already correct, so only swap here.
+                channels = new LRGBArrays(debayered.Lum, debayered.Blue, debayered.Green, debayered.Red);
+            }
 
             StatusUpdate("Aligning frame - red channel", item);
             var redChannelData = imageDataFactory.CreateBaseImageData(channels.Red, item.Width, item.Height, redTab.Properties.BitDepth, false, meta);
